@@ -1,0 +1,9 @@
+node_modules/
+*.log
+.env
+.env.local
+*.zip
+*.tar.gz
+dist/
+tmp/
+.DS_Store

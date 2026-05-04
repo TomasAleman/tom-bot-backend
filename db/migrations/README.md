@@ -1,0 +1,89 @@
+# Migraciones Postgres — esquema `tombot`
+
+Estas migraciones crean el storage operativo multi-tenant que reemplaza
+a Google Sheets como fuente de verdad para el bot de reservas.
+
+## Aplicar en local
+
+Asumiendo que el contenedor de Postgres de Evolution API se llama
+`postgres` y la DB es `evolution`:
+
+```bash
+cd "C:\Users\Tomas\Desktop\evolution-api"
+docker compose exec -T postgres psql -U postgres -d evolution -f - < db/migrations/001_init_schema.sql
+docker compose exec -T postgres psql -U postgres -d evolution -f - < db/migrations/002_seed_tom_bot_tenant.sql
+docker compose exec -T postgres psql -U postgres -d evolution -f - < db/migrations/003_funcion_asignar_mesa.sql
+```
+
+O todo de una pasada con el script:
+
+```bash
+node scripts/apply_migrations.js
+```
+
+## Aplicar en produccion (VM GCP)
+
+```bash
+ssh alemanmdq@34.68.131.253
+cd /opt/tombot   # o donde este el repo en la VM
+docker compose -f docker-compose.prod.yml exec -T postgres psql -U postgres -d evolution -f - < db/migrations/001_init_schema.sql
+# repetir para 002 y 003
+```
+
+## Orden y dependencias
+
+1. **001_init_schema.sql** — esquema, tablas, indices, triggers. Idempotente.
+2. **002_seed_tom_bot_tenant.sql** — carga tenant `tom-bot` con id=1 y
+   config + mesas default. Las mesas reales se traen despues con
+   `scripts/import_from_sheets.js`.
+3. **003_funcion_asignar_mesa.sql** — funcion concurrency-safe para
+   asignar mesa. Requiere las tablas creadas.
+4. **004_cleanup_y_metricas.sql** / **005_funcion_modificar_reserva.sql** —
+   segun el despliegue (ver lista en `db/migrations/`).
+5. **006_funcion_disponibilidad_modificar.sql** — lista dias/horarios con
+   mesa libre para el flujo *modificar* (misma logica que `fn_modificar_reserva`).
+6. **007_fix_modificar_dia_valor_iso.sql** — al cambiar *dia*, interpreta
+   siempre los primeros 10 caracteres `YYYY-MM-DD` si el valor trae ISO
+   con hora/TZ (evita que el dia se corra respecto al listado del bot).
+7. **008_fn_modificar_reserva_fix_ambiguous_id.sql** — corrige
+   `restaurante_id` ambiguo en el `PERFORM` de mesas (choque con columnas
+   OUTPUT de `RETURNS TABLE` en PL/pgSQL). Sin esto, `fn_modificar_reserva`
+   fallaba y n8n veía 0 filas como “sin disponibilidad”.
+8. **009_fn_modificar_reserva_timeouts.sql** — `SET LOCAL lock_timeout` /
+   `statement_timeout` al inicio de `fn_modificar_reserva` para que una
+   espera por candados o una consulta anómala no deje el nodo Postgres de n8n
+   colgado indefinidamente (p. ej. 15 s esperando lock, 60 s máximo por llamada).
+9. **010_panel_usuarios.sql** — tabla `tombot.usuarios_panel` para login del
+   panel web (1 row por usuario, atado a un `restaurante_id`). El JWT que
+   emite `/api/auth/login` lleva `{ usuario_id, restaurante_id }` y todas
+   las queries del panel filtran por ese `restaurante_id` (cero acceso
+   cruzado entre tenants). Crear el primer usuario:
+   `npm run crear-usuario-panel -- --slug X --email Y --password Z`.
+
+## Disponibilidad y estados de reserva
+
+Solo las reservas **confirmadas** ocupan mesa a efectos de disponibilidad
+(buscar mesa, confirmar, modificar, `fn_disponibilidad_modificar`). Las filas
+en estado **Cancelada** o **NoShow** **no** participan en el cruce de
+conflictos: si alguien reservó y luego canceló, el hueco cuenta como libre
+igual que si nunca hubiera existido la reserva (salvo otra confirmada en el
+mismo slot). En SQL esto se expresa como `lower(estado) = 'confirmada'` o
+`estado = 'Confirmada'` según la función.
+
+## Convenciones
+
+- Schema aislado: todo bajo `tombot.*` para no chocar con el schema de
+  Evolution API. Si se borra la DB de Evolution se mantiene tom-bot
+  (configurable via backups separados).
+- `BIGSERIAL` en PKs por si llegamos a millones de rows.
+- `JSONB` para `contexto_reserva` (mas flexible que columnas fijas).
+- `TIMESTAMPTZ` siempre — evita lios de timezone.
+
+## Rollback
+
+```sql
+DROP SCHEMA tombot CASCADE;
+```
+
+Cuidado: borra TODOS los datos del bot (reservas, sesiones, configs).
+Hacer `pg_dump -n tombot` antes.
