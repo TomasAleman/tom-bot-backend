@@ -2,12 +2,46 @@
 
 Microservicio Fastify (hot path WhatsApp + API del panel) y migraciones SQL del bot de reservas.
 
+## Ramas (flujo de trabajo)
+
+| Rama | Uso |
+|------|-----|
+| **`main`** | Historial estable inicial; podés alinearla con `release` cuando quieras. |
+| **`develop`** | Rama donde trabajás día a día: features, fixes, `git push`. |
+| **`release`** | **Única rama desde la que se despliega a producción.** Cuando algo está listo, mergeás `develop` → `release` y subís `release`. |
+
+**Regla:** en la VM **nunca** hagas deploy desde `develop`. Siempre `checkout release` + `git pull` (o el script `vm_deploy_release.sh`).
+
+### Crear `develop` y `release` la primera vez (en tu PC)
+
+```bash
+cd ~/ruta/al/clon/tom-bot-backend   # o C:\proyectos\tom-bot-backend
+git checkout main
+git pull origin main
+git checkout -b develop
+git push -u origin develop
+git checkout -b release
+git push -u origin release
+```
+
+### Publicar a producción (en tu PC)
+
+```bash
+git checkout develop
+# ... commits, push ...
+git checkout release
+git merge develop
+git push origin release
+```
+
+Luego en la **VM**: deploy con `vm_deploy_release.sh` o los comandos manuales de abajo.
+
 ## Estructura
 
 ```
 microservice/   API + hot path (Node.js + Fastify, contenedor Docker)
 db/             Migraciones SQL (idempotentes) + scripts puntuales
-scripts/        Utilidades operativas (migrar, backup, alta de usuarios, deploy)
+scripts/        Utilidades operativas + deploy
 ```
 
 ## Variables de entorno
@@ -35,32 +69,57 @@ npm ci
 npm start
 ```
 
-## Deploy en la VM (git pull + docker compose)
+## Deploy en la VM (solo rama `release`)
 
-Una vez que la VM tiene el repo clonado en `~/tom-bot-backend`:
+### Opción A — Script recomendado (en la VM)
 
+```bash
+chmod +x ~/tom-bot-backend/scripts/vm_deploy_release.sh   # una vez
+~/tom-bot-backend/scripts/vm_deploy_release.sh
 ```
-cd ~/tom-bot-backend && git pull
+
+Equivale a: `git fetch`, `checkout release`, `pull`, `docker build` en `microservice/`, `docker compose up --force-recreate`.
+
+Variables opcionales: `REPO_ROOT`, `DEPLOY_BRANCH` (default `release`), `COMPOSE_FILE`, `IMAGE_NAME`.
+
+### Opción B — Comandos manuales (misma regla: rama `release`)
+
+```bash
+cd ~/tom-bot-backend
+git fetch origin
+git checkout release
+git pull origin release
 cd microservice
 docker build -t tom-bot-microservice:latest .
 docker compose -f ~/docker-compose.prod.yml up -d microservice --force-recreate
 curl -sI http://127.0.0.1:3000/admin/ | head -3
 ```
 
+### Opción C — Desde tu PC con SSH + rsync
+
+Solo con **`git checkout release`** y código al día:
+
+```bash
+VM_USER=alemanmdq VM_HOST=IP_VM ./scripts/deploy_microservice.sh
+```
+
+Emergencia (no recomendado): `ALLOW_NON_RELEASE_DEPLOY=1 VM_USER=... VM_HOST=... ./scripts/deploy_microservice.sh`
+
 ### Primera vez (clone inicial)
 
-```
+```bash
 sudo apt update && sudo apt install -y git
 cd ~
 git clone https://github.com/TomasAleman/tom-bot-backend.git
-cd tom-bot-backend/microservice
+cd tom-bot-backend
+git checkout release   # después de crear la rama en GitHub
+git pull origin release
+cd microservice
 docker build -t tom-bot-microservice:latest .
 docker compose -f ~/docker-compose.prod.yml up -d microservice --force-recreate
 ```
 
 ## Migraciones DB
-
-Las migraciones viven en `db/migrations/` y son idempotentes. Aplicarlas con:
 
 ```
 PGURL='postgres://...' node scripts/apply_migrations.js
@@ -75,8 +134,6 @@ PGURL='postgres://...' node scripts/crear_usuario_panel.js \
 
 ## Scripts incluidos
 
-- `scripts/apply_migrations.js` aplica migraciones SQL de `db/migrations/`.
-- `scripts/crear_usuario_panel.js` crea/upserta usuarios en `tombot.usuarios_panel` (bcrypt).
-- `scripts/deploy_microservice.sh` rsync + build remoto (alternativa al flujo `git pull`).
-- `scripts/backup_postgres.sh`, `scripts/restore_postgres.sh` operaciones DB.
-- `scripts/cleanup_sesiones.js`, `scripts/metrics_exporter.js`, `scripts/import_from_sheets.js` utilidades runtime.
+- **`scripts/vm_deploy_release.sh`** — deploy en VM desde `release` (docker).
+- **`scripts/deploy_microservice.sh`** — rsync desde PC + build remoto (solo rama `release`).
+- `scripts/apply_migrations.js`, `scripts/crear_usuario_panel.js`, backup/restore, etc.
