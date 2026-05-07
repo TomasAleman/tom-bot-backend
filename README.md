@@ -137,3 +137,37 @@ PGURL='postgres://...' node scripts/crear_usuario_panel.js \
 - **`scripts/vm_deploy_release.sh`** — deploy en VM desde `release` (docker).
 - **`scripts/deploy_microservice.sh`** — rsync desde PC + build remoto (solo rama `release`).
 - `scripts/apply_migrations.js`, `scripts/crear_usuario_panel.js`, backup/restore, etc.
+
+## Troubleshooting
+
+### Reservas duplicadas en el panel
+
+Si en la pestaña **Reservas** ves filas repetidas, primero descartá que sean
+duplicados reales en la BD. Conectate al Postgres del contenedor y corré
+(reemplazá `1` por el `restaurante_id` correspondiente):
+
+```sql
+SELECT id, restaurante_id, telefono, dia, horario_hora, estado,
+       count(*) OVER (PARTITION BY id) AS dup
+  FROM tombot.reservas
+ WHERE restaurante_id = 1
+ ORDER BY id DESC
+ LIMIT 50;
+```
+
+Interpretación:
+
+- Si `dup` siempre vale `1`, no hay duplicados reales: el panel ya los
+  filtra del lado cliente (deduplicación por `id`) y el `ORDER BY` del
+  backend incluye `r.id` como tiebreaker, por lo que la paginación no
+  debería repetir filas. El bug está cerrado.
+- Si aparece `dup > 1`, hay reservas verdaderamente repetidas en la base.
+  Borralas a mano (`DELETE … WHERE id IN (…)`) e investigá el origen
+  (insert duplicado en el flujo de WhatsApp / n8n).
+
+Para abrir un `psql` rápido en la VM:
+
+```bash
+docker exec -it evo-postgres psql -U postgres -d postgres
+```
+
