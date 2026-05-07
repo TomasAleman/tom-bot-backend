@@ -22,8 +22,14 @@ const MesaShapeSchema = z.object({
   activa: z.boolean().optional().default(true),
 });
 
+function tieneAlMenosUnTurno(d) {
+  return Boolean(d?.horario_manana || d?.horario_mediodia || d?.horario_tarde);
+}
+
 const MesaCreateSchema = MesaShapeSchema.refine((d) => d.max_personas >= d.min_personas, {
   message: 'max_personas debe ser >= min_personas',
+}).refine(tieneAlMenosUnTurno, {
+  message: 'debe tener al menos un turno configurado',
 });
 
 const MesaUpdateSchema = MesaShapeSchema.partial()
@@ -35,6 +41,19 @@ const MesaUpdateSchema = MesaShapeSchema.partial()
       d.max_personas >= d.min_personas,
     { message: 'max_personas debe ser >= min_personas' }
   );
+
+async function fetchMesa(ctx, restauranteId, id) {
+  const { rows } = await ctx.pgPool.query(
+    `SELECT id, restaurante_id, numero_mesa, min_personas, max_personas,
+            horario_manana, horario_mediodia, horario_tarde,
+            activa, created_at, updated_at
+       FROM tombot.mesas
+      WHERE restaurante_id = $1 AND id = $2
+      LIMIT 1`,
+    [restauranteId, id]
+  );
+  return rows[0] || null;
+}
 
 export async function registerMesasRoutes(fastify, ctx) {
   fastify.addHook('preHandler', authHook);
@@ -98,8 +117,39 @@ export async function registerMesasRoutes(fastify, ctx) {
     }
 
     const fields = parsed.data;
+    const restauranteId = req.user.restaurante_id;
+
+    // Regla: una mesa debe tener al menos 1 turno. Como PATCH es parcial, necesitamos
+    // validar el estado final (merge entre DB actual + fields).
+    const quiereTocarTurnos = (
+      Object.prototype.hasOwnProperty.call(fields, 'horario_manana') ||
+      Object.prototype.hasOwnProperty.call(fields, 'horario_mediodia') ||
+      Object.prototype.hasOwnProperty.call(fields, 'horario_tarde')
+    );
+    if (quiereTocarTurnos) {
+      const existing = await fetchMesa(ctx, restauranteId, id);
+      if (!existing) return reply.code(404).send({ error: 'not_found' });
+      const merged = {
+        horario_manana: Object.prototype.hasOwnProperty.call(fields, 'horario_manana')
+          ? fields.horario_manana
+          : existing.horario_manana,
+        horario_mediodia: Object.prototype.hasOwnProperty.call(fields, 'horario_mediodia')
+          ? fields.horario_mediodia
+          : existing.horario_mediodia,
+        horario_tarde: Object.prototype.hasOwnProperty.call(fields, 'horario_tarde')
+          ? fields.horario_tarde
+          : existing.horario_tarde,
+      };
+      if (!tieneAlMenosUnTurno(merged)) {
+        return reply.code(400).send({
+          error: 'bad_request',
+          message: 'debe tener al menos un turno configurado',
+        });
+      }
+    }
+
     const sets = [];
-    const params = [req.user.restaurante_id, id];
+    const params = [restauranteId, id];
     let i = 3;
     for (const [k, v] of Object.entries(fields)) {
       sets.push(`${k} = $${i++}`);
