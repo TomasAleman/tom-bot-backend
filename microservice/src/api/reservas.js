@@ -32,9 +32,9 @@ const PatchSchema = z.object({
 
 function buildOrderBy(order) {
   switch (order) {
-    case 'dia_desc': return 'r.dia DESC, r.horario_hora DESC';
-    case 'creada_desc': return 'r.created_at DESC';
-    default: return 'r.dia ASC, r.horario_hora ASC';
+    case 'dia_desc': return 'r.dia DESC, r.horario_hora DESC, r.id DESC';
+    case 'creada_desc': return 'r.created_at DESC, r.id DESC';
+    default: return 'r.dia ASC, r.horario_hora ASC, r.id ASC';
   }
 }
 
