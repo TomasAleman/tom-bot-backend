@@ -10,9 +10,26 @@
 import { z } from 'zod';
 import { authHook } from '../middleware/auth.js';
 
-const HORARIO_REGEX = /^\d{1,2}-\d{1,2}$/;
+// Formato HH:MM-HH:MM (inicio inclusivo, fin exclusivo). El panel restringe a
+// pasos de 15 min en la UI, pero la API acepta cualquier minuto valido.
+const HORARIO_REGEX = /^([01]?\d|2[0-3]):[0-5]\d-([01]?\d|2[0-3]):[0-5]\d$/;
 
-const MesaShapeSchema = z.object({
+function turnoToMinutos(s) {
+  if (!s) return null;
+  if (!HORARIO_REGEX.test(s)) return null;
+  const [ini, fin] = s.split('-');
+  const [sh, sm] = ini.split(':').map((n) => parseInt(n, 10));
+  const [eh, em] = fin.split(':').map((n) => parseInt(n, 10));
+  return { startMin: sh * 60 + sm, endMin: eh * 60 + em };
+}
+
+function turnoValido(s) {
+  if (s === null || s === undefined) return true;
+  const r = turnoToMinutos(s);
+  return Boolean(r) && r.endMin > r.startMin;
+}
+
+const MesaShapeBase = z.object({
   numero_mesa: z.string().trim().min(1).max(20),
   min_personas: z.number().int().min(0).max(50),
   max_personas: z.number().int().min(1).max(100),
@@ -26,13 +43,22 @@ function tieneAlMenosUnTurno(d) {
   return Boolean(d?.horario_manana || d?.horario_mediodia || d?.horario_tarde);
 }
 
-const MesaCreateSchema = MesaShapeSchema.refine((d) => d.max_personas >= d.min_personas, {
-  message: 'max_personas debe ser >= min_personas',
-}).refine(tieneAlMenosUnTurno, {
-  message: 'debe tener al menos un turno configurado',
-});
+const MesaCreateSchema = MesaShapeBase
+  .refine((d) => d.max_personas >= d.min_personas, {
+    message: 'max_personas debe ser >= min_personas',
+  })
+  .refine(tieneAlMenosUnTurno, {
+    message: 'debe tener al menos un turno configurado',
+  })
+  .refine(
+    (d) =>
+      turnoValido(d.horario_manana) &&
+      turnoValido(d.horario_mediodia) &&
+      turnoValido(d.horario_tarde),
+    { message: 'el fin de cada turno debe ser posterior al inicio' }
+  );
 
-const MesaUpdateSchema = MesaShapeSchema.partial()
+const MesaUpdateSchema = MesaShapeBase.partial()
   .refine((d) => Object.keys(d).length > 0, { message: 'al menos un campo es requerido' })
   .refine(
     (d) =>
@@ -40,6 +66,13 @@ const MesaUpdateSchema = MesaShapeSchema.partial()
       d.min_personas === undefined ||
       d.max_personas >= d.min_personas,
     { message: 'max_personas debe ser >= min_personas' }
+  )
+  .refine(
+    (d) =>
+      turnoValido(d.horario_manana) &&
+      turnoValido(d.horario_mediodia) &&
+      turnoValido(d.horario_tarde),
+    { message: 'el fin de cada turno debe ser posterior al inicio' }
   );
 
 async function fetchMesa(ctx, restauranteId, id) {
