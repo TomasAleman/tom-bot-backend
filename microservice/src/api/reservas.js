@@ -12,6 +12,7 @@
 
 import { z } from 'zod';
 import { authHook } from '../middleware/auth.js';
+import { requireWriteAccess } from '../middleware/authz.js';
 
 const ListQuery = z.object({
   dia_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -127,7 +128,7 @@ export async function registerReservasRoutes(fastify, ctx) {
     return { ...r, id: Number(r.id) };
   });
 
-  fastify.patch('/:id', async (req, reply) => {
+  fastify.patch('/:id', { preHandler: requireWriteAccess }, async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return reply.code(400).send({ error: 'bad_request' });
@@ -179,7 +180,7 @@ export async function registerReservasRoutes(fastify, ctx) {
     return { reserva: { ...last, id: Number(last.id) } };
   });
 
-  fastify.post('/:id/cancelar', async (req, reply) => {
+  fastify.post('/:id/cancelar', { preHandler: requireWriteAccess }, async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return reply.code(400).send({ error: 'bad_request' });
@@ -208,7 +209,7 @@ export async function registerReservasRoutes(fastify, ctx) {
     return { reserva: { ...rows[0], id: Number(rows[0].id) } };
   });
 
-  fastify.post('/:id/no-show', async (req, reply) => {
+  fastify.post('/:id/no-show', { preHandler: requireWriteAccess }, async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return reply.code(400).send({ error: 'bad_request' });

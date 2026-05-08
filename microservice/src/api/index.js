@@ -12,6 +12,7 @@ import { registerMesasRoutes } from './mesas.js';
 import { registerConfigRoutes } from './config.js';
 import { registerSesionesRoutes } from './sesiones.js';
 import { registerMetricasRoutes } from './metricas.js';
+import { registerSuperadminRoutes } from './superadmin.js';
 
 export async function registerApi(fastify, ctx) {
   await fastify.register(async (api) => {
@@ -22,5 +23,6 @@ export async function registerApi(fastify, ctx) {
     await api.register((scope) => registerConfigRoutes(scope, ctx),   { prefix: '/config' });
     await api.register((scope) => registerSesionesRoutes(scope, ctx), { prefix: '/sesiones' });
     await api.register((scope) => registerMetricasRoutes(scope, ctx), { prefix: '/metricas' });
+    await api.register((scope) => registerSuperadminRoutes(scope, ctx), { prefix: '/superadmin' });
   }, { prefix: '/api' });
 }

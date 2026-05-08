@@ -42,7 +42,7 @@ export async function registerAuthRoutes(fastify, ctx) {
       `SELECT u.id, u.restaurante_id, u.email, u.password_hash, u.nombre, u.rol, u.activo,
               r.nombre AS restaurante_nombre, r.slug AS restaurante_slug, r.timezone AS restaurante_tz
          FROM tombot.usuarios_panel u
-         JOIN tombot.restaurantes   r ON r.id = u.restaurante_id
+         LEFT JOIN tombot.restaurantes r ON r.id = u.restaurante_id
         WHERE lower(u.email) = $1
         LIMIT 1`,
       [email]
@@ -64,15 +64,18 @@ export async function registerAuthRoutes(fastify, ctx) {
       [user.id]
     );
 
-    const token = await reply.jwtSign(
-      {
-        usuario_id: Number(user.id),
-        restaurante_id: Number(user.restaurante_id),
-        rol: user.rol,
-        email: user.email,
-      },
-      { expiresIn: '8h' }
-    );
+    if (user.rol !== 'superadmin' && !user.restaurante_id) {
+      return reply.code(401).send({ error: 'invalid_credentials' });
+    }
+
+    const tokenPayload = {
+      usuario_id: Number(user.id),
+      restaurante_id: user.restaurante_id ? Number(user.restaurante_id) : null,
+      rol: user.rol,
+      email: user.email,
+    };
+
+    const token = await reply.jwtSign(tokenPayload, { expiresIn: '8h' });
 
     try {
       await ctx.pgPool.query(
@@ -91,12 +94,14 @@ export async function registerAuthRoutes(fastify, ctx) {
         email: user.email,
         nombre: user.nombre,
         rol: user.rol,
-        restaurante: {
-          id: Number(user.restaurante_id),
-          nombre: user.restaurante_nombre,
-          slug: user.restaurante_slug,
-          timezone: user.restaurante_tz,
-        },
+        restaurante: user.restaurante_id
+          ? {
+              id: Number(user.restaurante_id),
+              nombre: user.restaurante_nombre,
+              slug: user.restaurante_slug,
+              timezone: user.restaurante_tz,
+            }
+          : null,
       },
     };
   });
@@ -107,7 +112,7 @@ export async function registerAuthRoutes(fastify, ctx) {
               r.id AS restaurante_id, r.nombre AS restaurante_nombre,
               r.slug AS restaurante_slug, r.timezone AS restaurante_tz
          FROM tombot.usuarios_panel u
-         JOIN tombot.restaurantes   r ON r.id = u.restaurante_id
+         LEFT JOIN tombot.restaurantes r ON r.id = u.restaurante_id
         WHERE u.id = $1 AND u.activo = TRUE
         LIMIT 1`,
       [req.user.usuario_id]
@@ -121,12 +126,14 @@ export async function registerAuthRoutes(fastify, ctx) {
         nombre: u.nombre,
         rol: u.rol,
         ultimo_login_at: u.ultimo_login_at,
-        restaurante: {
-          id: Number(u.restaurante_id),
-          nombre: u.restaurante_nombre,
-          slug: u.restaurante_slug,
-          timezone: u.restaurante_tz,
-        },
+        restaurante: u.restaurante_id
+          ? {
+              id: Number(u.restaurante_id),
+              nombre: u.restaurante_nombre,
+              slug: u.restaurante_slug,
+              timezone: u.restaurante_tz,
+            }
+          : null,
       },
     };
   });

@@ -19,7 +19,11 @@ export async function authHook(req, reply) {
   }
 
   const payload = req.user || {};
-  if (!payload.usuario_id || !payload.restaurante_id) {
+  const rol = payload.rol;
+  if (!payload.usuario_id || !rol) {
+    return reply.code(401).send({ error: 'unauthorized', message: 'token sin claims requeridos' });
+  }
+  if (rol !== 'superadmin' && !payload.restaurante_id) {
     return reply.code(401).send({ error: 'unauthorized', message: 'token sin claims requeridos' });
   }
 }

@@ -10,6 +10,7 @@
  */
 
 import { authHook } from '../middleware/auth.js';
+import { requireWriteAccess } from '../middleware/authz.js';
 import { PARAMETROS_CONFIG, esParametroConocido, validarValor } from './config-schema.js';
 
 const PARAM_REGEX = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
@@ -41,7 +42,7 @@ export async function registerConfigRoutes(fastify, ctx) {
     return { config, schema: PARAMETROS_CONFIG };
   });
 
-  fastify.patch('/', async (req, reply) => {
+  fastify.patch('/', { preHandler: requireWriteAccess }, async (req, reply) => {
     const body = req.body;
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return reply.code(400).send({ error: 'bad_request', message: 'body invalido' });
@@ -116,7 +117,7 @@ export async function registerConfigRoutes(fastify, ctx) {
     return { config, schema: PARAMETROS_CONFIG };
   });
 
-  fastify.delete('/:parametro', async (req, reply) => {
+  fastify.delete('/:parametro', { preHandler: requireWriteAccess }, async (req, reply) => {
     const parametro = String(req.params.parametro || '');
     if (!PARAM_REGEX.test(parametro)) {
       return reply.code(400).send({ error: 'bad_request' });

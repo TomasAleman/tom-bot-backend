@@ -48,6 +48,7 @@ const evolutionUrl = process.env.EVOLUTION_URL || 'http://evolution-api:8080';
 const groqKey = process.env.GROQ_API_KEY;
 const jwtSecret = process.env.JWT_SECRET;
 const panelPublicDir = process.env.PANEL_PUBLIC_DIR || '/opt/tombot/panel-public';
+const evolutionGlobalKey = process.env.EVOLUTION_GLOBAL_KEY;
 
 if (!groqKey) {
   fastify.log.warn('GROQ_API_KEY no esta seteada — el hot path WhatsApp no podra parsear mensajes.');
@@ -56,7 +57,14 @@ if (!jwtSecret) {
   fastify.log.warn('JWT_SECRET no esta seteada — las rutas /api del panel no funcionaran.');
 }
 
-const ctx = { pgPool, redis, evolutionUrl, groqKey, log: fastify.log };
+const ctx = {
+  pgPool,
+  redis,
+  evolutionUrl,
+  evolutionGlobalKey,
+  groqKey,
+  log: fastify.log,
+};
 
 await fastify.register(fastifyHelmet, {
   contentSecurityPolicy: false,

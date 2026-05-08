@@ -9,6 +9,7 @@
 
 import { z } from 'zod';
 import { authHook } from '../middleware/auth.js';
+import { requireWriteAccess } from '../middleware/authz.js';
 
 // Formato HH:MM-HH:MM (inicio inclusivo, fin exclusivo). El panel restringe a
 // pasos de 15 min en la UI, pero la API acepta cualquier minuto valido.
@@ -104,7 +105,7 @@ export async function registerMesasRoutes(fastify, ctx) {
     return { data: rows.map((m) => ({ ...m, id: Number(m.id) })) };
   });
 
-  fastify.post('/', async (req, reply) => {
+  fastify.post('/', { preHandler: requireWriteAccess }, async (req, reply) => {
     const parsed = MesaCreateSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: 'bad_request', issues: parsed.error.issues });
@@ -139,7 +140,7 @@ export async function registerMesasRoutes(fastify, ctx) {
     }
   });
 
-  fastify.patch('/:id', async (req, reply) => {
+  fastify.patch('/:id', { preHandler: requireWriteAccess }, async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return reply.code(400).send({ error: 'bad_request' });
@@ -202,7 +203,7 @@ export async function registerMesasRoutes(fastify, ctx) {
     return { mesa: { ...rows[0], id: Number(rows[0].id) } };
   });
 
-  fastify.delete('/:id', async (req, reply) => {
+  fastify.delete('/:id', { preHandler: requireWriteAccess }, async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return reply.code(400).send({ error: 'bad_request' });
