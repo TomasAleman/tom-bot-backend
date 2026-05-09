@@ -47,8 +47,7 @@ async function acquireClient(pool, log) {
 }
 
 export async function registerSuperadminRoutes(fastify, ctx) {
-  fastify.addHook('preHandler', authHook);
-  fastify.addHook('preHandler', requireSuperadmin);
+  const preSuperadmin = { preHandler: [authHook, requireSuperadmin] };
 
   const superadminSelf = async (req) => ({
     ok: true,
@@ -58,10 +57,10 @@ export async function registerSuperadminRoutes(fastify, ctx) {
   });
 
   /** Diagnóstico (misma respuesta en ambas rutas; algunos proxies bloquean “ping”). */
-  fastify.get('/ping', superadminSelf);
-  fastify.get('/whoami', superadminSelf);
+  fastify.get('/ping', preSuperadmin, superadminSelf);
+  fastify.get('/whoami', preSuperadmin, superadminSelf);
 
-  fastify.get('/restaurantes', async () => {
+  fastify.get('/restaurantes', preSuperadmin, async () => {
     const { rows } = await ctx.pgPool.query(
       `SELECT id, slug, nombre, timezone, instancia_evolution, activo, created_at, updated_at
          FROM tombot.restaurantes
@@ -76,7 +75,7 @@ export async function registerSuperadminRoutes(fastify, ctx) {
    * Alta restaurante + usuario admin en una transacción (admin_email / admin_password obligatorios).
    * bcrypt se calcula ANTES del BEGIN para no mantener locks innecesarios.
    */
-  fastify.post('/restaurantes', async (req, reply) => {
+  fastify.post('/restaurantes', preSuperadmin, async (req, reply) => {
     const parsed = CreateRestauranteSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: 'bad_request', issues: parsed.error.issues });
@@ -203,7 +202,7 @@ export async function registerSuperadminRoutes(fastify, ctx) {
     }
   });
 
-  fastify.post('/usuarios', async (req, reply) => {
+  fastify.post('/usuarios', preSuperadmin, async (req, reply) => {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     if (body.rol === 'superadmin') {
       return reply.code(403).send({
@@ -255,7 +254,7 @@ export async function registerSuperadminRoutes(fastify, ctx) {
     });
   });
 
-  fastify.post('/restaurantes/:id/entrar', async (req, reply) => {
+  fastify.post('/restaurantes/:id/entrar', preSuperadmin, async (req, reply) => {
     const rid = Number(req.params.id);
     if (!Number.isFinite(rid) || rid <= 0) {
       return reply.code(400).send({ error: 'bad_request' });
