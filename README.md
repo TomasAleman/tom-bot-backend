@@ -58,6 +58,11 @@ El microservicio lee estas variables (definidas en `docker-compose.core.yml` del
 | `PANEL_PUBLIC_DIR` | Directorio del bundle del panel (default `/opt/tombot/panel-public`) |
 | `PORT` | Default `3000` |
 | `LOG_LEVEL` | `info` \| `debug` \| `warn` \| `error` |
+| `REQUEST_TIMEOUT_MS` | Máx. ms por request HTTP (default `120000`) |
+| `PG_POOL_MAX` | Tamaño del pool `pg` (default `20`) |
+| `PG_POOL_CONNECTION_TIMEOUT_MS` | Máx. ms para **obtener** conexión del pool (default `15000`); evita colgarse si el pool está lleno |
+| `PG_POOL_IDLE_TIMEOUT_MS` | `idleTimeoutMillis` del pool (default `30000`) |
+| `PG_STATEMENT_TIMEOUT_SUPERADMIN_MS` | `statement_timeout` en ms en el `INSERT` de restaurante superadmin (default `20000`) |
 
 Plantilla en [microservice/.env.example](microservice/.env.example). **Nunca** comitear `.env`.
 

@@ -13,6 +13,8 @@ const CreateRestauranteSchema = z.object({
   evolution_api_key: z.string().trim().min(10).max(512),
 });
 
+const PG_STMT_RESTAURANTE_MS = parseInt(process.env.PG_STATEMENT_TIMEOUT_SUPERADMIN_MS || '20000', 10);
+
 const CreateUsuarioSchema = z.object({
   restaurante_id: z.number().int().positive().nullable().optional(),
   email: z.string().trim().toLowerCase().email().max(160),
@@ -64,9 +66,22 @@ export async function registerSuperadminRoutes(fastify, ctx) {
       'POST /superadmin/restaurantes: inicio (solo DB; Evolution fuera del backend)'
     );
 
-    const client = await ctx.pgPool.connect();
+    let client;
+    try {
+      client = await ctx.pgPool.connect();
+    } catch (err) {
+      ctx.log.error({ err, evt: 'superadmin_resto_pool_connect_fail' }, 'POST /superadmin/restaurantes: sin conexion Postgres');
+      return reply.code(503).send({
+        error: 'database_unavailable',
+        message:
+          'No hay conexion disponible con la base de datos (pool agotado o Postgres inalcanzable). Revisa PGURL, Postgres y logs del contenedor.',
+      });
+    }
+
     try {
       await client.query('BEGIN');
+      const stmtMs = Number.isFinite(PG_STMT_RESTAURANTE_MS) && PG_STMT_RESTAURANTE_MS > 0 ? PG_STMT_RESTAURANTE_MS : 20000;
+      await client.query(`SET LOCAL statement_timeout = ${stmtMs}`);
 
       const { rows } = await client.query(
         `INSERT INTO tombot.restaurantes
@@ -104,9 +119,19 @@ export async function registerSuperadminRoutes(fastify, ctx) {
         evolution: { instanceName: instanciaEvolution },
       });
     } catch (err) {
-      await client.query('ROLLBACK');
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        /* noop */
+      }
       if (err && err.code === '23505') {
         return reply.code(409).send({ error: 'duplicado', message: 'slug o instancia ya existe' });
+      }
+      if (err && err.code === '57014') {
+        return reply.code(504).send({
+          error: 'database_timeout',
+          message: 'La base de datos tardó demasiado (statement_timeout). Revisa locks o carga en Postgres.',
+        });
       }
       throw err;
     } finally {

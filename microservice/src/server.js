@@ -20,6 +20,10 @@
  *   JWT_SECRET       secreto para firmar tokens del panel (obligatorio si se usa el panel)
  *   PANEL_PUBLIC_DIR ruta absoluta al bundle del panel (default /opt/tombot/panel-public)
  *   LOG_LEVEL        info | debug | warn | error
+ *   REQUEST_TIMEOUT_MS           timeout por petición HTTP (default 120000)
+ *   PG_POOL_MAX                  max conexiones al pool (default 20)
+ *   PG_POOL_CONNECTION_TIMEOUT_MS tiempo máximo para obtener conexión del pool (default 15000)
+ *   PG_POOL_IDLE_TIMEOUT_MS       idleTimeoutMillis del pool (default 30000)
  */
 
 import path from 'node:path';
@@ -36,12 +40,22 @@ import { registerApi } from './api/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+const requestTimeoutMs = parseInt(process.env.REQUEST_TIMEOUT_MS || '120000', 10);
 const fastify = Fastify({
   logger: { level: process.env.LOG_LEVEL || 'info' },
   trustProxy: true,
+  requestTimeout: Number.isFinite(requestTimeoutMs) && requestTimeoutMs > 0 ? requestTimeoutMs : 120000,
 });
 
-const pgPool = new Pool({ connectionString: process.env.PGURL });
+const pgMax = parseInt(process.env.PG_POOL_MAX || '20', 10);
+const pgConnTimeoutMs = parseInt(process.env.PG_POOL_CONNECTION_TIMEOUT_MS || '15000', 10);
+const pgIdleMs = parseInt(process.env.PG_POOL_IDLE_TIMEOUT_MS || '30000', 10);
+const pgPool = new Pool({
+  connectionString: process.env.PGURL,
+  max: Number.isFinite(pgMax) && pgMax > 0 ? pgMax : 20,
+  connectionTimeoutMillis: Number.isFinite(pgConnTimeoutMs) && pgConnTimeoutMs >= 0 ? pgConnTimeoutMs : 15000,
+  idleTimeoutMillis: Number.isFinite(pgIdleMs) && pgIdleMs > 0 ? pgIdleMs : 30000,
+});
 const redis = new Redis(process.env.REDIS_URL || 'redis://redis:6379');
 
 const evolutionUrl = process.env.EVOLUTION_URL || 'http://evolution-api:8080';
