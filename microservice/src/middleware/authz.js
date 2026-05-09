@@ -3,10 +3,12 @@ function isRecepcionista(rol) {
   return rol === 'recepcionista' || rol === 'staff';
 }
 
-export function requireWriteAccess(req, reply) {
+export async function requireWriteAccess(req, reply) {
   const rol = req.user?.rol;
+  req.log?.info?.({ evt: 'authz_write_check', rol: rol ?? null }, 'requireWriteAccess');
   if (isRecepcionista(rol)) {
-    return reply.code(403).send({ error: 'forbidden', message: 'no tenes permisos para esta accion' });
+    await reply.code(403).send({ error: 'forbidden', message: 'no tenes permisos para esta accion' });
+    return undefined;
   }
   return undefined;
 }
