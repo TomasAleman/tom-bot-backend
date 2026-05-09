@@ -144,6 +144,10 @@ PGURL='postgres://...' node scripts/crear_usuario_panel.js \
 
 ## Troubleshooting
 
+### Timeout al crear restaurante (superadmin)
+
+El microservicio registra eventos `superadmin_resto_*` en los logs al crear tenant. En la VM: `docker logs tom-bot-microservice 2>&1 | tail -100`. Guía paso a paso (Red del navegador, `EVOLUTION_URL`, proxy): ver sección **Timeout al crear restaurante** en el runbook de deploy del kit (`deploy.md`).
+
 ### Reservas duplicadas en el panel
 
 Si en la pestaña **Reservas** ves filas repetidas, primero descartá que sean

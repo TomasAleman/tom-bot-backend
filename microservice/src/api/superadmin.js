@@ -138,10 +138,24 @@ export async function registerSuperadminRoutes(fastify, ctx) {
     const timezone = input.timezone || 'America/Argentina/Buenos_Aires';
     const instanciaEvolution = input.instancia_evolution || slug;
 
+    const t0 = Date.now();
+    ctx.log.info(
+      { evt: 'superadmin_resto_start', slug, instanciaEvolution },
+      'POST /superadmin/restaurantes: inicio (Evolution + DB)'
+    );
+
     let evo;
     try {
       evo = await createEvolutionInstance(ctx, instanciaEvolution);
+      ctx.log.info(
+        { evt: 'superadmin_resto_evolution_ok', ms: Date.now() - t0, instanciaEvolution },
+        'POST /superadmin/restaurantes: Evolution instance/create OK'
+      );
     } catch (err) {
+      ctx.log.warn(
+        { evt: 'superadmin_resto_evolution_fail', ms: Date.now() - t0, instanciaEvolution, errCode: err?.code, statusCode: err?.statusCode },
+        'POST /superadmin/restaurantes: Evolution fallo'
+      );
       if (err && err.code === 'MISSING_EVOLUTION_GLOBAL_KEY') {
         return reply.code(503).send({
           error: 'evolution_not_configured',
@@ -194,6 +208,17 @@ export async function registerSuperadminRoutes(fastify, ctx) {
       );
 
       await client.query('COMMIT');
+
+      ctx.log.info(
+        {
+          evt: 'superadmin_resto_commit',
+          ms: Date.now() - t0,
+          restauranteId: Number(rest.id),
+          slug: rest.slug,
+          instanciaEvolution,
+        },
+        'POST /superadmin/restaurantes: COMMIT OK'
+      );
 
       return reply.code(201).send({
         restaurante: { ...rest, id: Number(rest.id) },
