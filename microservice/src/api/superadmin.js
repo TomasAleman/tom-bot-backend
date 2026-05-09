@@ -138,6 +138,19 @@ export async function registerSuperadminRoutes(fastify, ctx) {
         [rest.id, input.nombre]
       );
 
+      // Defaults del bot para restaurantes nuevos
+      await client.query(
+        `INSERT INTO tombot.config (restaurante_id, parametro, valor, updated_at)
+         VALUES
+           ($1, 'AvisarBloqueo',          'true', NOW()),
+           ($1, 'BloqueMaximoMinutos',    '50',   NOW()),
+           ($1, 'BloqueoInicialMinutos',  '5',    NOW()),
+           ($1, 'DiasMaxAnticipacion',    '7',    NOW()),
+           ($1, 'MensajesMaxSinCompletar','15',   NOW())
+        ON CONFLICT (restaurante_id, parametro) DO NOTHING`,
+        [rest.id]
+      );
+
       const { rows: uRows } = await client.query(
         `INSERT INTO tombot.usuarios_panel (restaurante_id, email, password_hash, nombre, rol, activo)
               VALUES ($1, $2, $3, $4, 'admin_restaurante', TRUE)
