@@ -64,6 +64,7 @@ const evolutionUrl = process.env.EVOLUTION_URL || 'http://evolution-api:8080';
 const groqKey = process.env.GROQ_API_KEY;
 const jwtSecret = process.env.JWT_SECRET;
 const panelPublicDir = process.env.PANEL_PUBLIC_DIR || '/opt/tombot/panel-public';
+const buildSha = process.env.GIT_SHA || process.env.SOURCE_VERSION || 'unknown';
 
 if (!groqKey) {
   fastify.log.warn('GROQ_API_KEY no esta seteada — el hot path WhatsApp no podra parsear mensajes.');
@@ -71,6 +72,14 @@ if (!groqKey) {
 if (!jwtSecret) {
   fastify.log.warn('JWT_SECRET no esta seteada — las rutas /api del panel no funcionaran.');
 }
+
+// Diagnóstico: endpoint sin auth para confirmar versión y entorno.
+fastify.get('/__build', async () => ({
+  ok: true,
+  sha: buildSha,
+  hasJwtSecret: !!jwtSecret,
+  pgPoolMax: pgPool.options?.max ?? null,
+}));
 
 const ctx = {
   pgPool,
@@ -122,7 +131,7 @@ fastify.setNotFoundHandler((req, reply) => {
 fastify.get('/health', async () => {
   await pgPool.query('SELECT 1');
   await redis.ping();
-  return { ok: true, ts: Date.now() };
+  return { ok: true, ts: Date.now(), sha: buildSha };
 });
 
 fastify.post('/webhook/whatsapp-reservas-fast', async (request, reply) => {
