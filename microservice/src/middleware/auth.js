@@ -13,8 +13,24 @@
 
 export async function authHook(req, reply) {
   try {
-    await req.jwtVerify();
+    const t0 = Date.now();
+    req.log?.debug?.({ evt: 'auth_jwt_verify_start' }, 'jwtVerify start');
+    await Promise.race([
+      req.jwtVerify(),
+      new Promise((_, reject) =>
+        setTimeout(() => {
+          const e = new Error('jwt_verify_timeout');
+          e.code = 'JWT_VERIFY_TIMEOUT';
+          reject(e);
+        }, 3000)
+      ),
+    ]);
+    req.log?.debug?.({ evt: 'auth_jwt_verify_ok', ms: Date.now() - t0 }, 'jwtVerify ok');
   } catch (err) {
+    req.log?.warn?.({ evt: 'auth_jwt_verify_fail', code: err?.code, message: err?.message }, 'jwtVerify fail');
+    if (err?.code === 'JWT_VERIFY_TIMEOUT') {
+      return reply.code(401).send({ error: 'unauthorized', message: 'jwt_verify_timeout' });
+    }
     return reply.code(401).send({ error: 'unauthorized', message: 'token invalido o expirado' });
   }
 
