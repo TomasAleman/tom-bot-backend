@@ -62,7 +62,7 @@ El microservicio lee estas variables (definidas en `docker-compose.core.yml` del
 | `PG_POOL_MAX` | Tamaño del pool `pg` (default `20`) |
 | `PG_POOL_CONNECTION_TIMEOUT_MS` | Máx. ms para **obtener** conexión del pool (default `15000`); evita colgarse si el pool está lleno |
 | `PG_POOL_IDLE_TIMEOUT_MS` | `idleTimeoutMillis` del pool (default `30000`) |
-| `PG_STATEMENT_TIMEOUT_SUPERADMIN_MS` | `statement_timeout` en ms en el `INSERT` de restaurante superadmin (default `20000`) |
+| `PG_STATEMENT_TIMEOUT_SUPERADMIN_MS` | `statement_timeout` en ms en la transacción alta restaurante+admin (default `45000`) |
 
 Plantilla en [microservice/.env.example](microservice/.env.example). **Nunca** comitear `.env`.
 
