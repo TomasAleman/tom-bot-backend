@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
-import { request as undiciRequest } from 'undici';
 import { authHook } from '../middleware/auth.js';
 import { requireSuperadmin } from '../middleware/authz.js';
 
@@ -8,8 +7,10 @@ const CreateRestauranteSchema = z.object({
   slug: z.string().trim().min(2).max(60).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(),
   nombre: z.string().trim().min(2).max(120),
   timezone: z.string().trim().min(3).max(80).optional(),
-  // opcional: si querés forzar un nombre de instancia distinto al slug
+  /** Nombre de instancia en Evolution (debe coincidir con la creada en Evolution Manager). Default: slug derivado del nombre. */
   instancia_evolution: z.string().trim().min(2).max(80).optional(),
+  /** API key de la instancia (copiála desde Evolution); no se llama a /instance/create desde el backend. */
+  evolution_api_key: z.string().trim().min(10).max(512),
 });
 
 const CreateUsuarioSchema = z.object({
@@ -20,18 +21,6 @@ const CreateUsuarioSchema = z.object({
   rol: z.enum(['admin_restaurante', 'recepcionista']),
 });
 
-const EVOLUTION_CONNECT_MS = 10_000;
-const EVOLUTION_READ_MS = 60_000;
-
-function isUndiciTimeoutError(err) {
-  const code = err && err.code;
-  return (
-    code === 'UND_ERR_CONNECT_TIMEOUT' ||
-    code === 'UND_ERR_HEADERS_TIMEOUT' ||
-    code === 'UND_ERR_BODY_TIMEOUT'
-  );
-}
-
 function slugFromNombre(nombre) {
   return nombre
     .normalize('NFD')
@@ -40,76 +29,6 @@ function slugFromNombre(nombre) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 60) || 'restaurante';
-}
-
-async function createEvolutionInstance(ctx, instanceName) {
-  if (!ctx.evolutionGlobalKey) {
-    const err = new Error('EVOLUTION_GLOBAL_KEY no seteada');
-    err.code = 'MISSING_EVOLUTION_GLOBAL_KEY';
-    throw err;
-  }
-
-  const url = `${ctx.evolutionUrl.replace(/\/$/, '')}/instance/create`;
-  const body = {
-    instanceName,
-    integration: 'WHATSAPP-BAILEYS',
-    qrcode: true,
-  };
-
-  let res;
-  let text;
-  try {
-    res = await undiciRequest(url, {
-      method: 'POST',
-      connectTimeout: EVOLUTION_CONNECT_MS,
-      headersTimeout: EVOLUTION_READ_MS,
-      bodyTimeout: EVOLUTION_READ_MS,
-      headers: {
-        apikey: ctx.evolutionGlobalKey,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
-    text = await res.body.text();
-  } catch (err) {
-    if (isUndiciTimeoutError(err)) {
-      const e = new Error('evolution_timeout');
-      e.code = 'EVOLUTION_TIMEOUT';
-      e.cause = err;
-      throw e;
-    }
-    throw err;
-  }
-
-  let json;
-  try { json = text ? JSON.parse(text) : null; } catch { json = null; }
-
-  if (res.statusCode < 200 || res.statusCode >= 300) {
-    const err = new Error(`evolution create instance fallo (${res.statusCode})`);
-    err.statusCode = res.statusCode;
-    err.payload = json || text;
-    throw err;
-  }
-
-  const apiKey =
-    json?.apikey ||
-    json?.apiKey ||
-    json?.instance?.apikey ||
-    json?.instance?.apiKey ||
-    null;
-  const qrcode =
-    json?.qrcode ||
-    json?.qr ||
-    json?.instance?.qrcode ||
-    null;
-
-  if (!apiKey) {
-    const err = new Error('evolution create instance: no devolvio apiKey');
-    err.payload = json;
-    throw err;
-  }
-
-  return { apiKey, qrcode, raw: json };
 }
 
 export async function registerSuperadminRoutes(fastify, ctx) {
@@ -137,52 +56,13 @@ export async function registerSuperadminRoutes(fastify, ctx) {
     const slug = input.slug || slugFromNombre(input.nombre);
     const timezone = input.timezone || 'America/Argentina/Buenos_Aires';
     const instanciaEvolution = input.instancia_evolution || slug;
+    const evolutionApiKey = input.evolution_api_key.trim();
 
     const t0 = Date.now();
     ctx.log.info(
       { evt: 'superadmin_resto_start', slug, instanciaEvolution },
-      'POST /superadmin/restaurantes: inicio (Evolution + DB)'
+      'POST /superadmin/restaurantes: inicio (solo DB; Evolution fuera del backend)'
     );
-
-    let evo;
-    try {
-      evo = await createEvolutionInstance(ctx, instanciaEvolution);
-      ctx.log.info(
-        { evt: 'superadmin_resto_evolution_ok', ms: Date.now() - t0, instanciaEvolution },
-        'POST /superadmin/restaurantes: Evolution instance/create OK'
-      );
-    } catch (err) {
-      ctx.log.warn(
-        { evt: 'superadmin_resto_evolution_fail', ms: Date.now() - t0, instanciaEvolution, errCode: err?.code, statusCode: err?.statusCode },
-        'POST /superadmin/restaurantes: Evolution fallo'
-      );
-      if (err && err.code === 'MISSING_EVOLUTION_GLOBAL_KEY') {
-        return reply.code(503).send({
-          error: 'evolution_not_configured',
-          message: 'EVOLUTION_GLOBAL_KEY no está configurada en el servidor',
-        });
-      }
-      if (err && err.code === 'EVOLUTION_TIMEOUT') {
-        return reply.code(504).send({
-          error: 'evolution_timeout',
-          message: 'Evolution no respondió a tiempo al crear la instancia. Revisá conectividad y EVOLUTION_URL.',
-        });
-      }
-      if (isUndiciTimeoutError(err)) {
-        return reply.code(504).send({
-          error: 'evolution_timeout',
-          message: 'Evolution no respondió a tiempo al crear la instancia. Revisá conectividad y EVOLUTION_URL.',
-        });
-      }
-      if (err && err.statusCode) {
-        return reply.code(502).send({
-          error: 'evolution_error',
-          message: `Evolution respondió con error (${err.statusCode})`,
-          details: err.payload,
-        });
-      }
-      throw err;
-    }
 
     const client = await ctx.pgPool.connect();
     try {
@@ -193,12 +73,11 @@ export async function registerSuperadminRoutes(fastify, ctx) {
             (slug, nombre, instancia_evolution, evolution_api_key, timezone, activo)
          VALUES ($1, $2, $3, $4, $5, TRUE)
          RETURNING id, slug, nombre, timezone, instancia_evolution, activo, created_at, updated_at`,
-        [slug, input.nombre, instanciaEvolution, evo.apiKey, timezone]
+        [slug, input.nombre, instanciaEvolution, evolutionApiKey, timezone]
       );
 
       const rest = rows[0];
 
-      // Config mínima para que el bot/panel muestre el nombre correcto
       await client.query(
         `INSERT INTO tombot.config (restaurante_id, parametro, valor, updated_at)
              VALUES ($1, 'NombreRestaurante', $2, NOW())
@@ -222,7 +101,7 @@ export async function registerSuperadminRoutes(fastify, ctx) {
 
       return reply.code(201).send({
         restaurante: { ...rest, id: Number(rest.id) },
-        evolution: { instanceName: instanciaEvolution, apiKey: evo.apiKey, qrcode: evo.qrcode || null },
+        evolution: { instanceName: instanciaEvolution },
       });
     } catch (err) {
       await client.query('ROLLBACK');
@@ -287,7 +166,6 @@ export async function registerSuperadminRoutes(fastify, ctx) {
     });
   });
 
-  // “Entrar” a un restaurante: emite token scoping con restaurante_id.
   fastify.post('/restaurantes/:id/entrar', async (req, reply) => {
     const rid = Number(req.params.id);
     if (!Number.isFinite(rid) || rid <= 0) {
@@ -325,4 +203,3 @@ export async function registerSuperadminRoutes(fastify, ctx) {
     };
   });
 }
-

@@ -144,9 +144,9 @@ PGURL='postgres://...' node scripts/crear_usuario_panel.js \
 
 ## Troubleshooting
 
-### Timeout al crear restaurante (superadmin)
+### Alta restaurante + Evolution (superadmin)
 
-El microservicio registra eventos `superadmin_resto_*` en los logs al crear tenant. En la VM: `docker logs tom-bot-microservice 2>&1 | tail -100`. Guía paso a paso (Red del navegador, `EVOLUTION_URL`, proxy): ver sección **Timeout al crear restaurante** en el runbook de deploy del kit (`deploy.md`).
+Alta de restaurante: el microservicio **no** crea la instancia en Evolution; se enlaza la fila `tombot.restaurantes` con `instancia_evolution` + `evolution_api_key` que cargás en el panel (instancia creada antes en Evolution Manager). Logs: `superadmin_resto_*` en `docker logs tom-bot-microservice`. Detalle operativo: kit `deploy.md` sección **Superadmin: alta de restaurante + Evolution**.
 
 ### Reservas duplicadas en el panel
 
