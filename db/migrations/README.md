@@ -26,7 +26,7 @@ node scripts/apply_migrations.js
 ```bash
 ssh alemanmdq@34.68.131.253
 cd /opt/tombot   # o donde este el repo en la VM
-docker compose -f docker-compose.prod.yml exec -T postgres psql -U postgres -d evolution -f - < db/migrations/001_init_schema.sql
+docker compose -f docker-compose.core.yml exec -T postgres psql -U postgres -d evolution -f - < db/migrations/001_init_schema.sql
 # repetir para 002 y 003
 ```
 

@@ -46,7 +46,7 @@ scripts/        Utilidades operativas + deploy
 
 ## Variables de entorno
 
-El microservicio lee estas variables (definidas en `~/docker-compose.prod.yml` en la VM o en `.env` local):
+El microservicio lee estas variables (definidas en `docker-compose.core.yml` del stack core en la VM, o en `.env` local). **n8n** corre en otro archivo: `docker-compose.n8n.yml`.
 
 | Variable | Para qué |
 |----------|----------|
@@ -82,9 +82,9 @@ Equivale a: `git fetch`, `checkout release`, `pull`, `docker build` en `microser
 
 Variables opcionales: `REPO_ROOT`, `DEPLOY_BRANCH` (default `release`), `COMPOSE_FILE`, `IMAGE_NAME`.
 
-Si el compose **no** está en `~/docker-compose.prod.yml`, exportá la ruta real antes de ejecutar el script (si no, falla con *no such file*):
+El script asume el compose core en `~/docker-compose.core.yml`. Si está en otra ruta, exportá `COMPOSE_FILE` antes de ejecutar (si no, falla con *no such file*):
 
-`COMPOSE_FILE=/ruta/a/docker-compose.prod.yml ~/tom-bot-backend/scripts/vm_deploy_release.sh`
+`COMPOSE_FILE=/ruta/a/docker-compose.core.yml ~/tom-bot-backend/scripts/vm_deploy_release.sh`
 
 ### Opción B — Comandos manuales (misma regla: rama `release`)
 
@@ -95,7 +95,7 @@ git checkout release
 git pull origin release
 cd microservice
 docker build -t tom-bot-microservice:latest .
-docker compose -f ~/docker-compose.prod.yml up -d microservice --force-recreate
+docker compose -f ~/docker-compose.core.yml up -d microservice --force-recreate
 curl -sI http://127.0.0.1:3000/admin/ | head -3
 ```
 
@@ -120,7 +120,7 @@ git checkout release   # después de crear la rama en GitHub
 git pull origin release
 cd microservice
 docker build -t tom-bot-microservice:latest .
-docker compose -f ~/docker-compose.prod.yml up -d microservice --force-recreate
+docker compose -f ~/docker-compose.core.yml up -d microservice --force-recreate
 ```
 
 ## Migraciones DB

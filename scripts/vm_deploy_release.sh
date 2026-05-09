@@ -9,28 +9,29 @@
 # Variables opcionales:
 #   REPO_ROOT       default ~/tom-bot-backend
 #   DEPLOY_BRANCH   default release
-#   COMPOSE_FILE    ruta al compose que define el servicio microservice (ver abajo)
+#   COMPOSE_FILE    ruta al compose core (panel + microservice; ver abajo)
 #   IMAGE_NAME      default tom-bot-microservice:latest
 #
-# COMPOSE_FILE: por defecto se usa $HOME/docker-compose.prod.yml. Si no existe
-# (error "no such file"), localizá tu stack en la VM y exportá la ruta, p. ej.:
-#   COMPOSE_FILE=/opt/tombot/docker-compose.prod.yml bash scripts/vm_deploy_release.sh
+# COMPOSE_FILE: por defecto $HOME/docker-compose.core.yml (stack core: front + back).
+# n8n va aparte en docker-compose.n8n.yml — no lo uses con este script.
+# Si el core no está en tu $HOME, exportá la ruta, p. ej.:
+#   COMPOSE_FILE=/opt/tombot/docker-compose.core.yml bash scripts/vm_deploy_release.sh
 
 set -euo pipefail
 
 REPO_ROOT="${REPO_ROOT:-$HOME/tom-bot-backend}"
 DEPLOY_BRANCH="${DEPLOY_BRANCH:-release}"
-COMPOSE_FILE="${COMPOSE_FILE:-$HOME/docker-compose.prod.yml}"
+COMPOSE_FILE="${COMPOSE_FILE:-$HOME/docker-compose.core.yml}"
 IMAGE_NAME="${IMAGE_NAME:-tom-bot-microservice:latest}"
 
 if [[ ! -f "$COMPOSE_FILE" ]]; then
   echo "ERROR: no existe el archivo de compose: $COMPOSE_FILE" >&2
   echo "" >&2
-  echo "Indicá la ruta real del stack donde está el servicio microservice, por ejemplo:" >&2
-  echo "  COMPOSE_FILE=/ruta/completa/docker-compose.prod.yml bash scripts/vm_deploy_release.sh" >&2
+  echo "Indicá la ruta del stack core (docker-compose.core.yml), por ejemplo:" >&2
+  echo "  COMPOSE_FILE=/ruta/completa/docker-compose.core.yml bash scripts/vm_deploy_release.sh" >&2
   echo "" >&2
   echo "Para buscarlo en la VM:" >&2
-  echo "  find \"\$HOME\" /opt -maxdepth 4 -name 'docker-compose*.yml' 2>/dev/null" >&2
+  echo "  find \"\$HOME\" /opt -maxdepth 5 -name 'docker-compose*.yml' 2>/dev/null" >&2
   exit 1
 fi
 

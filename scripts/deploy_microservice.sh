@@ -35,7 +35,7 @@ fi
 
 SSH_PORT="${SSH_PORT:-22}"
 VM_MS_DIR="${VM_MS_DIR:-~/tom-bot-backend/microservice}"
-COMPOSE_REMOTE="${COMPOSE_REMOTE:-~/docker-compose.prod.yml}"
+COMPOSE_REMOTE="${COMPOSE_REMOTE:-~/docker-compose.core.yml}"
 IMAGE_NAME="${IMAGE_NAME:-tom-bot-microservice:latest}"
 
 MS_DIR="$ROOT_DIR/microservice"
