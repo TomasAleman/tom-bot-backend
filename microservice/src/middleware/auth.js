@@ -26,4 +26,5 @@ export async function authHook(req, reply) {
   if (rol !== 'superadmin' && !payload.restaurante_id) {
     return reply.code(401).send({ error: 'unauthorized', message: 'token sin claims requeridos' });
   }
+  return undefined;
 }

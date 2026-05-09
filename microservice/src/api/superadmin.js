@@ -3,26 +3,19 @@ import bcrypt from 'bcryptjs';
 import { authHook } from '../middleware/auth.js';
 import { requireSuperadmin } from '../middleware/authz.js';
 
-const CreateRestauranteSchema = z
-  .object({
-    slug: z.string().trim().min(2).max(60).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(),
-    nombre: z.string().trim().min(2).max(120),
-    timezone: z.string().trim().min(3).max(80).optional(),
-    instancia_evolution: z.string().trim().min(2).max(80).optional(),
-    evolution_api_key: z.string().trim().min(10).max(512),
-    /** Si venís con admin, creá restaurante + usuario admin en una sola transacción (recomendado). */
-    admin_email: z.string().trim().toLowerCase().email().max(160).optional(),
-    admin_password: z.string().min(8).max(200).optional(),
-    admin_nombre: z.string().trim().min(1).max(120).optional(),
-  })
-  .refine(
-    (d) => {
-      const any = d.admin_email || d.admin_password;
-      if (!any) return true;
-      return !!(d.admin_email && d.admin_password);
-    },
-    { message: 'Si cargás admin del restaurante, email y contraseña son obligatorios', path: ['admin_email'] }
-  );
+const CreateRestauranteSchema = z.object({
+  slug: z.string().trim().min(2).max(60).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(),
+  nombre: z.string().trim().min(2).max(120),
+  timezone: z.string().trim().min(3).max(80).optional(),
+  instancia_evolution: z.string().trim().min(2).max(80).optional(),
+  evolution_api_key: z.string().trim().min(10).max(512),
+  admin_email: z.string().trim().toLowerCase().email().max(160),
+  admin_password: z.string().min(8).max(200),
+  admin_nombre: z.preprocess(
+    (v) => (v === '' || v === null || v === undefined ? undefined : v),
+    z.string().trim().min(1).max(120).optional()
+  ),
+});
 
 const PG_STMT_RESTAURANTE_MS = parseInt(process.env.PG_STATEMENT_TIMEOUT_SUPERADMIN_MS || '45000', 10);
 
@@ -57,6 +50,14 @@ export async function registerSuperadminRoutes(fastify, ctx) {
   fastify.addHook('preHandler', authHook);
   fastify.addHook('preHandler', requireSuperadmin);
 
+  /** Diagnóstico: si esto no responde 200, el problema es JWT, rol o proxy — no el INSERT. */
+  fastify.get('/ping', async (req) => ({
+    ok: true,
+    rol: req.user?.rol ?? null,
+    usuario_id: req.user?.usuario_id ?? null,
+    restaurante_id: req.user?.restaurante_id ?? null,
+  }));
+
   fastify.get('/restaurantes', async () => {
     const { rows } = await ctx.pgPool.query(
       `SELECT id, slug, nombre, timezone, instancia_evolution, activo, created_at, updated_at
@@ -69,7 +70,7 @@ export async function registerSuperadminRoutes(fastify, ctx) {
   });
 
   /**
-   * Una sola llamada: restaurante (+ opcional admin del restaurante en la misma transacción).
+   * Alta restaurante + usuario admin en una transacción (admin_email / admin_password obligatorios).
    * bcrypt se calcula ANTES del BEGIN para no mantener locks innecesarios.
    */
   fastify.post('/restaurantes', async (req, reply) => {
@@ -84,15 +85,17 @@ export async function registerSuperadminRoutes(fastify, ctx) {
     const instanciaEvolution = input.instancia_evolution || slug;
     const evolutionApiKey = input.evolution_api_key.trim();
 
-    const withAdmin = !!(input.admin_email && input.admin_password);
-    let passwordHash = null;
-    if (withAdmin) {
+    let passwordHash;
+    try {
       passwordHash = await bcrypt.hash(input.admin_password, 12);
+    } catch (err) {
+      ctx.log.error({ err, evt: 'superadmin_bcrypt_fail' }, 'bcrypt hash fallo');
+      return reply.code(500).send({ error: 'internal_error', message: 'No se pudo procesar la contraseña' });
     }
 
     const t0 = Date.now();
     ctx.log.info(
-      { evt: 'superadmin_resto_start', slug, instanciaEvolution, withAdmin },
+      { evt: 'superadmin_resto_start', slug, instanciaEvolution },
       'POST /superadmin/restaurantes'
     );
 
@@ -128,26 +131,23 @@ export async function registerSuperadminRoutes(fastify, ctx) {
         [rest.id, input.nombre]
       );
 
-      let usuarioPayload = null;
-      if (withAdmin && passwordHash) {
-        const { rows: uRows } = await client.query(
-          `INSERT INTO tombot.usuarios_panel (restaurante_id, email, password_hash, nombre, rol, activo)
-                VALUES ($1, $2, $3, $4, 'admin_restaurante', TRUE)
-           RETURNING id, restaurante_id, email, nombre, rol, activo, created_at, updated_at`,
-          [rest.id, input.admin_email, passwordHash, input.admin_nombre || null]
-        );
-        const u = uRows[0];
-        usuarioPayload = {
-          id: Number(u.id),
-          email: u.email,
-          nombre: u.nombre,
-          rol: u.rol,
-          restaurante_id: u.restaurante_id ? Number(u.restaurante_id) : null,
-          activo: u.activo,
-          created_at: u.created_at,
-          updated_at: u.updated_at,
-        };
-      }
+      const { rows: uRows } = await client.query(
+        `INSERT INTO tombot.usuarios_panel (restaurante_id, email, password_hash, nombre, rol, activo)
+              VALUES ($1, $2, $3, $4, 'admin_restaurante', TRUE)
+         RETURNING id, restaurante_id, email, nombre, rol, activo, created_at, updated_at`,
+        [rest.id, input.admin_email, passwordHash, input.admin_nombre || null]
+      );
+      const u = uRows[0];
+      const usuarioPayload = {
+        id: Number(u.id),
+        email: u.email,
+        nombre: u.nombre,
+        rol: u.rol,
+        restaurante_id: u.restaurante_id ? Number(u.restaurante_id) : null,
+        activo: u.activo,
+        created_at: u.created_at,
+        updated_at: u.updated_at,
+      };
 
       await client.query('COMMIT');
 
@@ -158,20 +158,15 @@ export async function registerSuperadminRoutes(fastify, ctx) {
           restauranteId: Number(rest.id),
           slug: rest.slug,
           instanciaEvolution,
-          withAdmin,
         },
         'POST /superadmin/restaurantes: COMMIT OK'
       );
 
-      const body = {
+      return reply.code(201).send({
         restaurante: { ...rest, id: Number(rest.id) },
         evolution: { instanceName: instanciaEvolution },
-      };
-      if (usuarioPayload) {
-        body.usuario = usuarioPayload;
-      }
-
-      return reply.code(201).send(body);
+        usuario: usuarioPayload,
+      });
     } catch (err) {
       try {
         await client.query('ROLLBACK');
@@ -191,7 +186,15 @@ export async function registerSuperadminRoutes(fastify, ctx) {
           message: 'La base de datos tardó demasiado. Revisa locks o subí PG_STATEMENT_TIMEOUT_SUPERADMIN_MS.',
         });
       }
-      throw err;
+      ctx.log.error(
+        { err, evt: 'superadmin_resto_unexpected', code: err?.code, detail: err?.detail },
+        'POST /superadmin/restaurantes: error inesperado'
+      );
+      return reply.code(500).send({
+        error: 'internal_error',
+        message: err?.detail || err?.message || 'Error al guardar en la base de datos',
+        code: err?.code || undefined,
+      });
     } finally {
       client.release();
     }

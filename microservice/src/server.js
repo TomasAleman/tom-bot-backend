@@ -24,6 +24,7 @@
  *   PG_POOL_MAX                  max conexiones al pool (default 20)
  *   PG_POOL_CONNECTION_TIMEOUT_MS tiempo máximo para obtener conexión del pool (default 15000)
  *   PG_POOL_IDLE_TIMEOUT_MS       idleTimeoutMillis del pool (default 30000)
+ *   PG_DEFAULT_STATEMENT_TIMEOUT_MS  statement_timeout en cada conexión del pool (default 120000); evita queries colgadas
  */
 
 import path from 'node:path';
@@ -56,6 +57,15 @@ const pgPool = new Pool({
   connectionTimeoutMillis: Number.isFinite(pgConnTimeoutMs) && pgConnTimeoutMs >= 0 ? pgConnTimeoutMs : 15000,
   idleTimeoutMillis: Number.isFinite(pgIdleMs) && pgIdleMs > 0 ? pgIdleMs : 30000,
 });
+
+const pgDefaultStmtMs = parseInt(process.env.PG_DEFAULT_STATEMENT_TIMEOUT_MS || '120000', 10);
+pgPool.on('connect', (client) => {
+  const ms = Number.isFinite(pgDefaultStmtMs) && pgDefaultStmtMs > 0 ? pgDefaultStmtMs : 120000;
+  client.query(`SET statement_timeout = ${ms}`).catch(() => {
+    /* log aún no disponible en primer connect; ignorar */
+  });
+});
+
 const redis = new Redis(process.env.REDIS_URL || 'redis://redis:6379');
 
 const evolutionUrl = process.env.EVOLUTION_URL || 'http://evolution-api:8080';
