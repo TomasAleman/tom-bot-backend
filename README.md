@@ -82,6 +82,10 @@ Equivale a: `git fetch`, `checkout release`, `pull`, `docker build` en `microser
 
 Variables opcionales: `REPO_ROOT`, `DEPLOY_BRANCH` (default `release`), `COMPOSE_FILE`, `IMAGE_NAME`.
 
+Si el compose **no** está en `~/docker-compose.prod.yml`, exportá la ruta real antes de ejecutar el script (si no, falla con *no such file*):
+
+`COMPOSE_FILE=/ruta/a/docker-compose.prod.yml ~/tom-bot-backend/scripts/vm_deploy_release.sh`
+
 ### Opción B — Comandos manuales (misma regla: rama `release`)
 
 ```bash
