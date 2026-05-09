@@ -50,13 +50,16 @@ export async function registerSuperadminRoutes(fastify, ctx) {
   fastify.addHook('preHandler', authHook);
   fastify.addHook('preHandler', requireSuperadmin);
 
-  /** Diagnóstico: si esto no responde 200, el problema es JWT, rol o proxy — no el INSERT. */
-  fastify.get('/ping', async (req) => ({
+  const superadminSelf = async (req) => ({
     ok: true,
     rol: req.user?.rol ?? null,
     usuario_id: req.user?.usuario_id ?? null,
     restaurante_id: req.user?.restaurante_id ?? null,
-  }));
+  });
+
+  /** Diagnóstico (misma respuesta en ambas rutas; algunos proxies bloquean “ping”). */
+  fastify.get('/ping', superadminSelf);
+  fastify.get('/whoami', superadminSelf);
 
   fastify.get('/restaurantes', async () => {
     const { rows } = await ctx.pgPool.query(
