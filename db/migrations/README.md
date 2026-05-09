@@ -59,6 +59,16 @@ docker compose -f docker-compose.core.yml exec -T postgres psql -U postgres -d e
    las queries del panel filtran por ese `restaurante_id` (cero acceso
    cruzado entre tenants). Crear el primer usuario:
    `npm run crear-usuario-panel -- --slug X --email Y --password Z`.
+10. **012_turnos_hh_mm.sql** / **013_mesas_turnos_texto_hs.sql** — turnos de
+    mesas en formato `HH:MM-HH:MM`.
+11. **015_horario_minutos.sql** — `reservas.horario_hora` pasa a ser **minutos
+    desde medianoche** (0-1439); `fn_hora_en_turno` compara minutos; nuevas
+    `fn_parse_minutos_desde_texto` y `fn_horario_label_desde_minutos`;
+    `fn_modificar_reserva` parsea horarios con minutos. **Orden de despliegue:**
+    aplicar **015 en Postgres antes** de importar el workflow n8n que envía
+    `horario_minutos` (o pausar el webhook unos minutos entre migración e
+    import). Idempotente en datos: solo actualiza filas con `horario_hora`
+    entre 0 y 23.
 
 ## Disponibilidad y estados de reserva
 

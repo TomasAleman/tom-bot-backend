@@ -28,7 +28,11 @@ const PatchSchema = z.object({
   nombre: z.string().trim().min(1).max(120).optional(),
   personas: z.number().int().min(1).max(50).optional(),
   dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  horario: z.number().int().min(0).max(23).optional(),
+  /** Minutos 0-1439, o "HH:MM" 24h. Numero 0-23 = hora en punto (compat panel viejo). */
+  horario: z.union([
+    z.number().int().min(0).max(1439),
+    z.string().regex(/^\d{1,2}:\d{2}$/),
+  ]).optional(),
 }).refine((d) => Object.keys(d).length > 0, { message: 'al menos un campo es requerido' });
 
 function buildOrderBy(order) {
@@ -149,7 +153,17 @@ export async function registerReservasRoutes(fastify, ctx) {
     let last = null;
 
     for (const [campo, valor] of Object.entries(updates)) {
-      const valorTxt = String(valor);
+      let valorTxt = String(valor);
+      if (campo === 'horario') {
+        if (typeof valor === 'number') {
+          valorTxt = valor <= 23 ? String(valor * 60) : String(valor);
+        } else {
+          const parts = String(valor).split(':');
+          const h = parseInt(parts[0], 10);
+          const mi = parseInt(parts[1], 10);
+          valorTxt = String(h * 60 + mi);
+        }
+      }
       const { rows } = await ctx.pgPool.query(
         `SELECT id, restaurante_id, nombre, telefono, dia, horario_hora,
                 horario_label, turno, personas, numero_mesa, estado
