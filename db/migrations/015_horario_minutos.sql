@@ -10,6 +10,10 @@
 
 SET search_path TO tombot, public;
 
+-- 001_init_schema: CHECK (horario_hora BETWEEN 0 AND 23). Hay que quitarlo
+-- antes de pasar filas a minutos (0-1439); al final se recrea el CHECK.
+ALTER TABLE tombot.reservas DROP CONSTRAINT IF EXISTS reservas_horario_hora_check;
+
 -- ---------------------------------------------------------------------
 -- 1) Helpers nuevos (sin depender de fn_hora_en_turno)
 -- ---------------------------------------------------------------------
@@ -269,3 +273,11 @@ $$;
 
 COMMENT ON FUNCTION tombot.fn_modificar_reserva IS
   'Modifica reserva; horario en p_valor como HH:MM, minutos 0-1439, o hora 0-23 (legacy).';
+
+-- ---------------------------------------------------------------------
+-- 5) CHECK acorde a minutos (idempotente con el DROP del inicio)
+-- ---------------------------------------------------------------------
+ALTER TABLE tombot.reservas DROP CONSTRAINT IF EXISTS reservas_horario_hora_check;
+ALTER TABLE tombot.reservas
+  ADD CONSTRAINT reservas_horario_hora_check
+  CHECK (horario_hora >= 0 AND horario_hora <= 1439);
