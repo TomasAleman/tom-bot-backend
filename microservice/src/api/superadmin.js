@@ -49,12 +49,14 @@ async function acquireClient(pool, log) {
 export async function registerSuperadminRoutes(fastify, ctx) {
   const preSuperadmin = { preHandler: [authHook, requireSuperadmin] };
 
-  const superadminSelf = async (req) => ({
-    ok: true,
-    rol: req.user?.rol ?? null,
-    usuario_id: req.user?.usuario_id ?? null,
-    restaurante_id: req.user?.restaurante_id ?? null,
-  });
+  const superadminSelf = async (req, reply) => {
+    return reply.send({
+      ok: true,
+      rol: req.user?.rol ?? null,
+      usuario_id: req.user?.usuario_id ?? null,
+      restaurante_id: req.user?.restaurante_id ?? null,
+    });
+  };
 
   // Diagnóstico sin auth: si esto cuelga, el problema NO es JWT.
   fastify.get('/__raw', async () => ({ ok: true }));

@@ -11,10 +11,12 @@ export function requireWriteAccess(req, reply) {
   return undefined;
 }
 
-export function requireSuperadmin(req, reply) {
+export async function requireSuperadmin(req, reply) {
   const rol = req.user?.rol;
+  req.log?.info?.({ evt: 'authz_superadmin_check', rol: rol ?? null }, 'requireSuperadmin');
   if (rol !== 'superadmin') {
-    return reply.code(403).send({ error: 'forbidden', message: 'solo superadmin' });
+    await reply.code(403).send({ error: 'forbidden', message: 'solo superadmin' });
+    return undefined;
   }
   return undefined;
 }
