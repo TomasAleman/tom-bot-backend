@@ -16,6 +16,9 @@ import { registerSuperadminRoutes } from './superadmin.js';
 
 export async function registerApi(fastify, ctx) {
   await fastify.register(async (api) => {
+    // Diagnóstico sin auth: si esto cuelga, el problema es routing/proxy, no JWT.
+    api.get('/__raw', async () => ({ ok: true }));
+
     await registerAuthRoutes(api, ctx);
 
     await api.register((scope) => registerReservasRoutes(scope, ctx), { prefix: '/reservas' });

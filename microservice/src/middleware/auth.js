@@ -14,7 +14,7 @@
 export async function authHook(req, reply) {
   try {
     const t0 = Date.now();
-    req.log?.debug?.({ evt: 'auth_jwt_verify_start' }, 'jwtVerify start');
+    req.log?.info?.({ evt: 'auth_jwt_verify_start' }, 'jwtVerify start');
     await Promise.race([
       req.jwtVerify(),
       new Promise((_, reject) =>
@@ -22,10 +22,10 @@ export async function authHook(req, reply) {
           const e = new Error('jwt_verify_timeout');
           e.code = 'JWT_VERIFY_TIMEOUT';
           reject(e);
-        }, 3000)
+        }, 1000)
       ),
     ]);
-    req.log?.debug?.({ evt: 'auth_jwt_verify_ok', ms: Date.now() - t0 }, 'jwtVerify ok');
+    req.log?.info?.({ evt: 'auth_jwt_verify_ok', ms: Date.now() - t0 }, 'jwtVerify ok');
   } catch (err) {
     req.log?.warn?.({ evt: 'auth_jwt_verify_fail', code: err?.code, message: err?.message }, 'jwtVerify fail');
     if (err?.code === 'JWT_VERIFY_TIMEOUT') {

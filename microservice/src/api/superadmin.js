@@ -56,6 +56,9 @@ export async function registerSuperadminRoutes(fastify, ctx) {
     restaurante_id: req.user?.restaurante_id ?? null,
   });
 
+  // Diagnóstico sin auth: si esto cuelga, el problema NO es JWT.
+  fastify.get('/__raw', async () => ({ ok: true }));
+
   /** Diagnóstico (misma respuesta en ambas rutas; algunos proxies bloquean “ping”). */
   fastify.get('/ping', preSuperadmin, superadminSelf);
   fastify.get('/whoami', preSuperadmin, superadminSelf);
