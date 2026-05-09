@@ -58,14 +58,6 @@ const pgPool = new Pool({
   idleTimeoutMillis: Number.isFinite(pgIdleMs) && pgIdleMs > 0 ? pgIdleMs : 30000,
 });
 
-const pgDefaultStmtMs = parseInt(process.env.PG_DEFAULT_STATEMENT_TIMEOUT_MS || '120000', 10);
-pgPool.on('connect', (client) => {
-  const ms = Number.isFinite(pgDefaultStmtMs) && pgDefaultStmtMs > 0 ? pgDefaultStmtMs : 120000;
-  client.query(`SET statement_timeout = ${ms}`).catch(() => {
-    /* log aún no disponible en primer connect; ignorar */
-  });
-});
-
 const redis = new Redis(process.env.REDIS_URL || 'redis://redis:6379');
 
 const evolutionUrl = process.env.EVOLUTION_URL || 'http://evolution-api:8080';
