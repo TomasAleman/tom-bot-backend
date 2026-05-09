@@ -17,8 +17,20 @@ const CreateUsuarioSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(160),
   password: z.string().min(8).max(200),
   nombre: z.string().trim().min(1).max(120).optional(),
-  rol: z.enum(['superadmin', 'admin_restaurante', 'recepcionista']),
+  rol: z.enum(['admin_restaurante', 'recepcionista']),
 });
+
+const EVOLUTION_CONNECT_MS = 10_000;
+const EVOLUTION_READ_MS = 60_000;
+
+function isUndiciTimeoutError(err) {
+  const code = err && err.code;
+  return (
+    code === 'UND_ERR_CONNECT_TIMEOUT' ||
+    code === 'UND_ERR_HEADERS_TIMEOUT' ||
+    code === 'UND_ERR_BODY_TIMEOUT'
+  );
+}
 
 function slugFromNombre(nombre) {
   return nombre
@@ -44,16 +56,31 @@ async function createEvolutionInstance(ctx, instanceName) {
     qrcode: true,
   };
 
-  const res = await undiciRequest(url, {
-    method: 'POST',
-    headers: {
-      apikey: ctx.evolutionGlobalKey,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
+  let res;
+  let text;
+  try {
+    res = await undiciRequest(url, {
+      method: 'POST',
+      connectTimeout: EVOLUTION_CONNECT_MS,
+      headersTimeout: EVOLUTION_READ_MS,
+      bodyTimeout: EVOLUTION_READ_MS,
+      headers: {
+        apikey: ctx.evolutionGlobalKey,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    text = await res.body.text();
+  } catch (err) {
+    if (isUndiciTimeoutError(err)) {
+      const e = new Error('evolution_timeout');
+      e.code = 'EVOLUTION_TIMEOUT';
+      e.cause = err;
+      throw e;
+    }
+    throw err;
+  }
 
-  const text = await res.body.text();
   let json;
   try { json = text ? JSON.parse(text) : null; } catch { json = null; }
 
@@ -111,7 +138,37 @@ export async function registerSuperadminRoutes(fastify, ctx) {
     const timezone = input.timezone || 'America/Argentina/Buenos_Aires';
     const instanciaEvolution = input.instancia_evolution || slug;
 
-    const evo = await createEvolutionInstance(ctx, instanciaEvolution);
+    let evo;
+    try {
+      evo = await createEvolutionInstance(ctx, instanciaEvolution);
+    } catch (err) {
+      if (err && err.code === 'MISSING_EVOLUTION_GLOBAL_KEY') {
+        return reply.code(503).send({
+          error: 'evolution_not_configured',
+          message: 'EVOLUTION_GLOBAL_KEY no está configurada en el servidor',
+        });
+      }
+      if (err && err.code === 'EVOLUTION_TIMEOUT') {
+        return reply.code(504).send({
+          error: 'evolution_timeout',
+          message: 'Evolution no respondió a tiempo al crear la instancia. Revisá conectividad y EVOLUTION_URL.',
+        });
+      }
+      if (isUndiciTimeoutError(err)) {
+        return reply.code(504).send({
+          error: 'evolution_timeout',
+          message: 'Evolution no respondió a tiempo al crear la instancia. Revisá conectividad y EVOLUTION_URL.',
+        });
+      }
+      if (err && err.statusCode) {
+        return reply.code(502).send({
+          error: 'evolution_error',
+          message: `Evolution respondió con error (${err.statusCode})`,
+          details: err.payload,
+        });
+      }
+      throw err;
+    }
 
     const client = await ctx.pgPool.connect();
     try {
@@ -154,22 +211,24 @@ export async function registerSuperadminRoutes(fastify, ctx) {
   });
 
   fastify.post('/usuarios', async (req, reply) => {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    if (body.rol === 'superadmin') {
+      return reply.code(403).send({
+        error: 'forbidden',
+        message: 'No se puede crear superadmin por API; solo por base de datos.',
+      });
+    }
+
     const parsed = CreateUsuarioSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: 'bad_request', issues: parsed.error.issues });
     }
     const input = parsed.data;
 
-    const restauranteId =
-      input.rol === 'superadmin'
-        ? null
-        : Number(input.restaurante_id);
+    const restauranteId = Number(input.restaurante_id);
 
-    if (input.rol !== 'superadmin' && !restauranteId) {
+    if (!restauranteId) {
       return reply.code(400).send({ error: 'bad_request', message: 'restaurante_id requerido' });
-    }
-    if (input.rol === 'superadmin' && input.restaurante_id) {
-      return reply.code(400).send({ error: 'bad_request', message: 'superadmin no debe tener restaurante_id' });
     }
 
     const passwordHash = await bcrypt.hash(input.password, 12);
