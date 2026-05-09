@@ -13,19 +13,38 @@ Contrato del cuerpo alineado con [microservice/src/handlers/message.js](../../mi
 
 Windows: `winget install k6 --source winget` o descarga desde la web oficial.
 
-### Instalar k6 en Ubuntu/Debian (VM, método oficial)
+### Instalar k6 en Ubuntu/Debian (VM)
 
-No uses `gpg --recv-keys` con el ID antiguo: en Jammy suele fallar. Usá la clave publicada en `dl.k6.io`:
+Si `apt` devuelve `NO_PUBKEY C780D0BDB1A69C86` aunque uses `key.gpg`, es un problema conocido del repo DEB + firma; **no pierdas tiempo**: usá **snap** o el **binario** (recomendado en servidores).
+
+**Opción A — Snap (la más simple en Ubuntu 22.04):**
+
+```bash
+sudo snap install k6
+k6 version
+```
+
+**Opción B — Binario oficial (sin apt, sin snap):** cambiá `v0.57.0` por la última versión en [releases de k6](https://github.com/grafana/k6/releases).
+
+```bash
+sudo rm -f /etc/apt/sources.list.d/k6.list
+VER=v0.57.0
+curl -sLO "https://github.com/grafana/k6/releases/download/${VER}/k6-${VER}-linux-amd64.tar.gz"
+tar -xzf "k6-${VER}-linux-amd64.tar.gz"
+sudo install -m 755 "k6-${VER}-linux-amd64/k6" /usr/local/bin/k6
+rm -rf "k6-${VER}-linux-amd64" "k6-${VER}-linux-amd64.tar.gz"
+k6 version
+```
+
+**Opción C — Repo apt (puede fallar según GPG):** [documentación Grafana](https://grafana.com/docs/k6/latest/set-up/install-k6/).
 
 ```bash
 curl -fsSL https://dl.k6.io/key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/k6-archive-keyring.gpg
 echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
-sudo apt-get update
-sudo apt-get install -y k6
-k6 version
+sudo apt-get update && sudo apt-get install -y k6
 ```
 
-Si antes agregaste el repo con una clave vacía o incorrecta, el primer comando **sobrescribe** el keyring; el `tee` de `k6.list` puede quedar igual.
+**Opción D — Docker:** `docker run --rm -v "$PWD:/scripts" -w /scripts grafana/k6 run stress.js` (montá el directorio del script).
 
 ## Variables de entorno
 
