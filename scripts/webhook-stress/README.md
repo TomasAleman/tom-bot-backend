@@ -13,6 +13,20 @@ Contrato del cuerpo alineado con [microservice/src/handlers/message.js](../../mi
 
 Windows: `winget install k6 --source winget` o descarga desde la web oficial.
 
+### Instalar k6 en Ubuntu/Debian (VM, método oficial)
+
+No uses `gpg --recv-keys` con el ID antiguo: en Jammy suele fallar. Usá la clave publicada en `dl.k6.io`:
+
+```bash
+curl -fsSL https://dl.k6.io/key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/k6-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+sudo apt-get update
+sudo apt-get install -y k6
+k6 version
+```
+
+Si antes agregaste el repo con una clave vacía o incorrecta, el primer comando **sobrescribe** el keyring; el `tee` de `k6.list` puede quedar igual.
+
 ## Variables de entorno
 
 | Variable | Obligatoria | Descripción |
