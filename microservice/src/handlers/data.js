@@ -12,7 +12,7 @@
 const CARGAR_CONTEXTO_SQL = `
 WITH tenant AS (
     SELECT id, slug, nombre, instancia_evolution, evolution_api_key,
-           sheets_id_lectura, timezone
+           sheets_id_lectura, timezone, link_menu, mostrar_menu
       FROM tombot.restaurantes
      WHERE instancia_evolution = $1 AND activo = TRUE LIMIT 1
 ),
@@ -40,6 +40,7 @@ mesas_arr AS (
 SELECT
     t.id AS restaurante_id, t.slug, t.nombre AS nombre_restaurante,
     t.instancia_evolution, t.evolution_api_key, t.timezone,
+    t.link_menu, t.mostrar_menu,
     s.contexto_reserva, s.contador_mensajes, s.bloqueo_hasta,
     s.bloqueo_minutos, s.primer_contacto, s.ultimo_mensaje_at,
     (s.restaurante_id IS NULL) AS es_primera_vez,

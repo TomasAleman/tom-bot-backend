@@ -70,6 +70,10 @@ docker compose -f docker-compose.core.yml exec -T postgres psql -U postgres -d e
     workflow n8n que envía `horario_minutos` (o pausar el webhook unos minutos
     entre migración e import). Idempotente en datos: solo actualiza filas con
     `horario_hora` entre 0 y 23.
+12. **016_restaurante_link_menu.sql** — columnas `restaurantes.link_menu`
+    (TEXT nullable) y `restaurantes.mostrar_menu` (BOOLEAN NOT NULL DEFAULT
+    TRUE). El workflow n8n y el microservice leen estos campos en "Cargar
+    contexto". Aplicar migración antes de importar el workflow actualizado.
 
 ## Disponibilidad y estados de reserva
 
