@@ -12,7 +12,7 @@
 
 import { z } from 'zod';
 import { authHook } from '../middleware/auth.js';
-import { requireWriteAccess } from '../middleware/authz.js';
+import { requireRestaurante, requireWriteAccess } from '../middleware/authz.js';
 
 const ListQuery = z.object({
   dia_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -34,6 +34,23 @@ const PatchSchema = z.object({
     z.string().regex(/^\d{1,2}:\d{2}$/),
   ]).optional(),
 }).refine((d) => Object.keys(d).length > 0, { message: 'al menos un campo es requerido' });
+
+const DisponibilidadQuery = z.object({
+  dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  personas: z.coerce.number().int().min(1).max(50),
+});
+
+const CrearReservaSchema = z.object({
+  nombre: z.string().trim().min(1).max(120),
+  telefono: z.string().trim().min(6).max(40),
+  dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** Minutos 0-1439, o "HH:MM" 24h. */
+  horario: z.union([
+    z.number().int().min(0).max(1439),
+    z.string().regex(/^\d{1,2}:\d{2}$/),
+  ]),
+  personas: z.coerce.number().int().min(1).max(50),
+});
 
 function buildOrderBy(order) {
   switch (order) {
@@ -68,8 +85,113 @@ async function fetchReserva(ctx, restauranteId, id) {
   return rows[0] || null;
 }
 
+function parseTurnoBounds(turnoStr) {
+  if (!turnoStr) return null;
+  const mm = String(turnoStr).match(/^\s*(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})\s*$/);
+  if (!mm) return null;
+  const sh = parseInt(mm[1], 10);
+  const sm = parseInt(mm[2], 10);
+  const eh = parseInt(mm[3], 10);
+  const em = parseInt(mm[4], 10);
+  if (sh < 0 || sh > 23 || eh < 0 || eh > 23) return null;
+  if (sm < 0 || sm > 59 || em < 0 || em > 59) return null;
+  const start = sh * 60 + sm;
+  const end = eh * 60 + em;
+  if (end <= start) return null;
+  return { start, end };
+}
+
+function hhmmToMin(raw) {
+  const m = String(raw || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = parseInt(m[1], 10);
+  const mi = parseInt(m[2], 10);
+  if (h < 0 || h > 23 || mi < 0 || mi > 59) return null;
+  return h * 60 + mi;
+}
+
 export async function registerReservasRoutes(fastify, ctx) {
   fastify.addHook('preHandler', authHook);
+
+  fastify.get('/disponibilidad', { preHandler: requireRestaurante }, async (req, reply) => {
+    const parsed = DisponibilidadQuery.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'bad_request', issues: parsed.error.issues });
+    }
+    const { dia, personas } = parsed.data;
+    const restauranteId = req.user.restaurante_id;
+
+    const { rows: mesasRows } = await ctx.pgPool.query(
+      `SELECT horario_manana, horario_mediodia, horario_tarde
+         FROM tombot.mesas
+        WHERE restaurante_id = $1 AND activa = TRUE`,
+      [restauranteId]
+    );
+
+    const turnosSet = new Set();
+    for (const m of mesasRows) {
+      if (m.horario_manana) turnosSet.add(m.horario_manana);
+      if (m.horario_mediodia) turnosSet.add(m.horario_mediodia);
+      if (m.horario_tarde) turnosSet.add(m.horario_tarde);
+    }
+    const turnos = [...turnosSet].sort();
+
+    const minutesSet = new Set();
+    for (const t of turnos) {
+      const b = parseTurnoBounds(t);
+      if (!b) continue;
+      for (let v = b.start; v < b.end; v += 15) minutesSet.add(v);
+    }
+    const minutes = [...minutesSet].sort((a, b) => a - b);
+
+    if (minutes.length === 0) {
+      return { horarios: [], turnos };
+    }
+
+    const { rows } = await ctx.pgPool.query(
+      `
+      WITH mins AS (
+        SELECT unnest($1::int[]) AS min
+      )
+      SELECT
+        mins.min AS valor,
+        regexp_replace(tombot.fn_horario_label_desde_minutos(mins.min), 'hs$', '') AS label
+      FROM mins
+      WHERE EXISTS (
+        SELECT 1
+          FROM tombot.mesas m
+         WHERE m.restaurante_id = $2
+           AND m.activa = TRUE
+           AND $3 BETWEEN m.min_personas AND m.max_personas
+           AND (
+                (m.horario_manana   IS NOT NULL AND tombot.fn_hora_en_turno(mins.min, m.horario_manana))
+             OR (m.horario_mediodia IS NOT NULL AND tombot.fn_hora_en_turno(mins.min, m.horario_mediodia))
+             OR (m.horario_tarde    IS NOT NULL AND tombot.fn_hora_en_turno(mins.min, m.horario_tarde))
+           )
+           AND NOT EXISTS (
+            SELECT 1
+              FROM tombot.reservas r2
+             WHERE r2.restaurante_id = $2
+               AND r2.dia = $4::date
+               AND lower(r2.estado) = 'confirmada'
+               AND r2.numero_mesa = m.numero_mesa
+               AND tombot.fn_misma_franja(
+                     mins.min,
+                     r2.horario_hora,
+                     m.horario_manana,
+                     m.horario_mediodia,
+                     m.horario_tarde
+                   )
+           )
+         LIMIT 1
+      )
+      ORDER BY mins.min ASC
+      `,
+      [minutes, restauranteId, personas, dia]
+    );
+
+    return { horarios: rows.map((r) => ({ valor: Number(r.valor), label: r.label })), turnos };
+  });
 
   fastify.get('/', async (req, reply) => {
     const parsed = ListQuery.safeParse(req.query);
@@ -192,6 +314,91 @@ export async function registerReservasRoutes(fastify, ctx) {
     });
 
     return { reserva: { ...last, id: Number(last.id) } };
+  });
+
+  fastify.post('/', { preHandler: [requireWriteAccess, requireRestaurante] }, async (req, reply) => {
+    const parsed = CrearReservaSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'bad_request', issues: parsed.error.issues });
+    }
+
+    const restauranteId = req.user.restaurante_id;
+    const body = parsed.data;
+    const personas = Number(body.personas);
+    const telefono = String(body.telefono || '').trim();
+    const nombre = String(body.nombre || '').trim();
+
+    let horarioMin = null;
+    if (typeof body.horario === 'number') horarioMin = body.horario;
+    else horarioMin = hhmmToMin(body.horario);
+    if (horarioMin == null || !Number.isFinite(horarioMin) || horarioMin < 0 || horarioMin > 1439) {
+      return reply.code(400).send({ error: 'bad_request', message: 'horario invalido' });
+    }
+
+    const { rows: mesasRows } = await ctx.pgPool.query(
+      `SELECT horario_manana, horario_mediodia, horario_tarde
+         FROM tombot.mesas
+        WHERE restaurante_id = $1 AND activa = TRUE`,
+      [restauranteId]
+    );
+    const turnosSet = new Set();
+    for (const m of mesasRows) {
+      if (m.horario_manana) turnosSet.add(m.horario_manana);
+      if (m.horario_mediodia) turnosSet.add(m.horario_mediodia);
+      if (m.horario_tarde) turnosSet.add(m.horario_tarde);
+    }
+    const turnos = [...turnosSet].sort();
+    const turno = turnos.find((t) => {
+      const b = parseTurnoBounds(t);
+      return b && horarioMin >= b.start && horarioMin < b.end;
+    }) || null;
+
+    if (!turno) {
+      return reply.code(400).send({ error: 'bad_request', message: 'horario fuera de los turnos configurados' });
+    }
+
+    const { rows: labelRows } = await ctx.pgPool.query(
+      `SELECT regexp_replace(tombot.fn_horario_label_desde_minutos($1::int), 'hs$', '') AS label`,
+      [horarioMin]
+    );
+    const horarioLabel = labelRows?.[0]?.label || null;
+
+    const { rows: mesaRows } = await ctx.pgPool.query(
+      `SELECT numero_mesa, turnos_alternativos
+         FROM tombot.fn_buscar_mesa_disponible($1, $2::DATE, $3::INT, $4, $5::INT)`,
+      [restauranteId, body.dia, horarioMin, turno, personas]
+    );
+    const mesaCand = mesaRows?.[0]?.numero_mesa || null;
+    const turnosAlt = mesaRows?.[0]?.turnos_alternativos || [];
+
+    if (!mesaCand) {
+      return reply.code(409).send({
+        error: 'sin_disponibilidad',
+        message: 'no hay mesa disponible para ese día/horario/personas',
+        turnos_alternativos: turnosAlt,
+      });
+    }
+
+    const { rows: confRows } = await ctx.pgPool.query(
+      `SELECT id_reserva, numero_mesa
+         FROM tombot.fn_confirmar_reserva($1, $2, $3, $4::DATE, $5::INT, $6, $7, $8::INT, $9)`,
+      [restauranteId, nombre, telefono, body.dia, horarioMin, horarioLabel, turno, personas, mesaCand]
+    );
+    const idReserva = confRows?.[0]?.id_reserva ? Number(confRows[0].id_reserva) : null;
+    if (!idReserva) {
+      return reply.code(409).send({
+        error: 'sin_disponibilidad',
+        message: 'no hay mesa disponible (conflicto de concurrencia)',
+      });
+    }
+
+    const reserva = await fetchReserva(ctx, restauranteId, idReserva);
+    await logEvent(ctx, restauranteId, 'panel_reserva_creada', {
+      reserva_id: idReserva,
+      por_usuario: req.user.usuario_id,
+    });
+
+    return reply.code(201).send({ reserva: { ...reserva, id: Number(reserva.id) } });
   });
 
   fastify.post('/:id/cancelar', { preHandler: requireWriteAccess }, async (req, reply) => {

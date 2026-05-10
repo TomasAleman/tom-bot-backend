@@ -3,6 +3,16 @@ function isRecepcionista(rol) {
   return rol === 'recepcionista' || rol === 'staff';
 }
 
+export async function requireRestaurante(req, reply) {
+  const rol = req.user?.rol;
+  req.log?.info?.({ evt: 'authz_restaurante_check', rol: rol ?? null }, 'requireRestaurante');
+  if (rol !== 'restaurante') {
+    await reply.code(403).send({ error: 'forbidden', message: 'solo rol restaurante' });
+    return undefined;
+  }
+  return undefined;
+}
+
 export async function requireWriteAccess(req, reply) {
   const rol = req.user?.rol;
   req.log?.info?.({ evt: 'authz_write_check', rol: rol ?? null }, 'requireWriteAccess');
