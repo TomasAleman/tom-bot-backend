@@ -3,11 +3,16 @@ function isRecepcionista(rol) {
   return rol === 'recepcionista' || rol === 'staff';
 }
 
+/** Owner del tenant (RBAC 014: `admin_restaurante`); compat opcional `restaurante`. */
+function isAdminRestaurante(rol) {
+  return rol === 'admin_restaurante' || rol === 'restaurante';
+}
+
 export async function requireRestaurante(req, reply) {
   const rol = req.user?.rol;
   req.log?.info?.({ evt: 'authz_restaurante_check', rol: rol ?? null }, 'requireRestaurante');
-  if (rol !== 'restaurante') {
-    await reply.code(403).send({ error: 'forbidden', message: 'solo rol restaurante' });
+  if (!isAdminRestaurante(rol)) {
+    await reply.code(403).send({ error: 'forbidden', message: 'solo admin del restaurante' });
     return undefined;
   }
   return undefined;
