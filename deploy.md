@@ -42,7 +42,7 @@ bash scripts/vm_print_pgurl_hint.sh
 # opcional: COMPOSE_FILE=/opt/tombot/docker-compose.core.yml bash scripts/vm_print_pgurl_hint.sh
 ```
 
-Ejemplos de **host válido**: `127.0.0.1`, la IP privada del contenedor Postgres en la red Docker, o el nombre del servicio compose **solo si** Node resuelve ese nombre desde el host donde corrés `apply_migrations.js` (en muchas VM conviene `127.0.0.1` o la IP del servidor, no el nombre interno `postgres` del compose, salvo que uses `docker compose run` desde la misma red).
+Ejemplos de **host válido**: `127.0.0.1` (desde la VM, con el puerto de Postgres publicado) o el nombre `postgres` **solo** cuando las migraciones corren dentro de Docker en la misma red que el stack (`vm_migrate_then_deploy.sh` lo hace solo si detecta host `postgres`).
 
 ### 3. En la VM: pull, migrar y deploy (todo en uno)
 
@@ -52,16 +52,19 @@ Ejemplos de **host válido**: `127.0.0.1`, la IP privada del contenedor Postgres
 cd ~/tom-bot-backend   # o la ruta real del repo en la VM
 git fetch origin && git checkout release && git pull origin release
 
-chmod +x scripts/vm_migrate_then_deploy.sh scripts/vm_deploy_release.sh scripts/vm_print_pgurl_hint.sh   # una vez
+chmod +x scripts/vm_migrate_then_deploy.sh scripts/vm_deploy_release.sh scripts/vm_print_pgurl_hint.sh scripts/vm_apply_migrations_docker.sh   # una vez
 
-# Reemplazá por la URL real (ver vm_print_pgurl_hint.sh). Ejemplo ilustrativo:
-export PGURL='postgres://mi_usuario:mi_clave@127.0.0.1:5432/evolution'
+# Pegá la salida EXACTA de: docker exec <contenedor> printenv PGURL
+# (si el host es "postgres", el script migra vía Docker en la misma red del compose)
+export PGURL='postgres://evo:CONTRASENA_REAL@postgres:5432/evolution'
 export COMPOSE_FILE=/ruta/a/docker-compose.core.yml   # solo si no usás ~/docker-compose.core.yml
 
 bash scripts/vm_migrate_then_deploy.sh
 ```
 
-El script ejecuta `npm ci` en `microservice/`, corre [`scripts/apply_migrations.js`](scripts/apply_migrations.js) con `NODE_PATH` apuntando al `pg` del microservicio, y luego [`scripts/vm_deploy_release.sh`](scripts/vm_deploy_release.sh).
+Si `PGURL` usa el host `postgres`, hace falta que exista **`COMPOSE_FILE`** (ruta al `docker-compose.core.yml`) para adjuntar el contenedor efímero a la red del stack. Si solo usás `~/docker-compose.core.yml`, no hace falta exportar nada extra.
+
+**No pegues** `....` ni `...` como host: son placeholders; la URL tiene que ser la de `printenv` o equivalente con `127.0.0.1` y puerto publicado.
 
 Opciones útiles:
 
