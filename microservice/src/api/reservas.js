@@ -14,11 +14,24 @@ import { z } from 'zod';
 import { authHook } from '../middleware/auth.js';
 import { requireRestaurante, requireWriteAccess } from '../middleware/authz.js';
 
+/** Cadenas vacías en query → undefined (URLs con `dia_desde=` etc. no rompen Zod). */
+function queryStringOrUndef(v) {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v === 'string' && v.trim() === '') return undefined;
+  return v;
+}
+
+function queryTrimmedOrUndef(v) {
+  if (v === undefined || v === null) return undefined;
+  const s = String(v).trim();
+  return s === '' ? undefined : s;
+}
+
 const ListQuery = z.object({
-  dia_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  dia_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  estado: z.enum(['Confirmada', 'Cancelada', 'NoShow']).optional(),
-  q: z.string().trim().max(120).optional(),
+  dia_desde: z.preprocess(queryStringOrUndef, z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
+  dia_hasta: z.preprocess(queryStringOrUndef, z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
+  estado: z.preprocess(queryStringOrUndef, z.enum(['Confirmada', 'Cancelada', 'NoShow']).optional()),
+  q: z.preprocess(queryTrimmedOrUndef, z.string().max(120).optional()),
   page: z.coerce.number().int().min(1).default(1),
   page_size: z.coerce.number().int().min(1).max(200).default(50),
   order: z.enum(['dia_asc', 'dia_desc', 'creada_desc']).default('dia_asc'),
