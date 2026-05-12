@@ -32,18 +32,31 @@ bash scripts/pc_release_push.sh
 
 ### 2. En la VM: variables
 
-- **`PGURL`**: misma cadena `postgres://...` que usa el contenedor `microservice` (esquema `tombot` en esa base).
+- **`PGURL`**: la **cadena completa** que usa el contenedor `microservice` (usuario, contraseña, host IP o nombre DNS, puerto, base de datos). Debe ser una URL real; si copiás literalmente `postgres://...` o un host `...`, Node fallará con `getaddrinfo ENOTFOUND ...`.
 - **`COMPOSE_FILE`**: ruta al `docker-compose.core.yml` del stack si no está en `~/docker-compose.core.yml` (ver `vm_deploy_release.sh`).
+
+Para ver comandos útiles y dónde buscar el valor:
+
+```bash
+bash scripts/vm_print_pgurl_hint.sh
+# opcional: COMPOSE_FILE=/opt/tombot/docker-compose.core.yml bash scripts/vm_print_pgurl_hint.sh
+```
+
+Ejemplos de **host válido**: `127.0.0.1`, la IP privada del contenedor Postgres en la red Docker, o el nombre del servicio compose **solo si** Node resuelve ese nombre desde el host donde corrés `apply_migrations.js` (en muchas VM conviene `127.0.0.1` o la IP del servidor, no el nombre interno `postgres` del compose, salvo que uses `docker compose run` desde la misma red).
 
 ### 3. En la VM: pull, migrar y deploy (todo en uno)
 
+**Orden:** primero `git pull` (así existen los scripts en disco) y **después** `chmod`.
+
 ```bash
 cd ~/tom-bot-backend   # o la ruta real del repo en la VM
-chmod +x scripts/vm_migrate_then_deploy.sh scripts/vm_deploy_release.sh   # una vez
 git fetch origin && git checkout release && git pull origin release
 
-export PGURL='postgres://USUARIO:PASSWORD@HOST:5432/NOMBRE_DB'
-export COMPOSE_FILE=/ruta/a/docker-compose.core.yml   # si aplica
+chmod +x scripts/vm_migrate_then_deploy.sh scripts/vm_deploy_release.sh scripts/vm_print_pgurl_hint.sh   # una vez
+
+# Reemplazá por la URL real (ver vm_print_pgurl_hint.sh). Ejemplo ilustrativo:
+export PGURL='postgres://mi_usuario:mi_clave@127.0.0.1:5432/evolution'
+export COMPOSE_FILE=/ruta/a/docker-compose.core.yml   # solo si no usás ~/docker-compose.core.yml
 
 bash scripts/vm_migrate_then_deploy.sh
 ```

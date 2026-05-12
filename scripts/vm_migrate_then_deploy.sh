@@ -31,7 +31,18 @@ SKIP_DEPLOY="${SKIP_DEPLOY:-0}"
 if [[ -z "${PGURL:-}" && "$SKIP_MIGRATE" != "1" ]]; then
   echo "ERROR: definí PGURL (cadena postgres://... igual que en el microservicio)." >&2
   echo "Ejemplo: export PGURL='postgres://postgres:SECRET@127.0.0.1:5432/evolution'" >&2
+  echo "Ayuda: bash \"$REPO_ROOT/scripts/vm_print_pgurl_hint.sh\"" >&2
   exit 1
+fi
+
+# Placeholder típico de la documentación: produce getaddrinfo ENOTFOUND ...
+if [[ "$SKIP_MIGRATE" != "1" ]]; then
+  if [[ "${PGURL}" == 'postgres://...' ]] || [[ "${PGURL}" =~ @\.\.\.[:/] ]]; then
+    echo "ERROR: PGURL usa el host literal '...' (placeholder). No es una URL real." >&2
+    echo "Obtené la cadena del contenedor microservice o del docker-compose (variable PGURL)." >&2
+    echo "  bash \"$REPO_ROOT/scripts/vm_print_pgurl_hint.sh\"" >&2
+    exit 1
+  fi
 fi
 
 cd "$REPO_ROOT"

@@ -131,7 +131,7 @@ docker compose -f ~/docker-compose.core.yml up -d microservice --force-recreate
 ## Migraciones DB
 
 ```
-PGURL='postgres://...' node scripts/apply_migrations.js
+PGURL='postgres://USUARIO:PASS@127.0.0.1:5432/evolution' node scripts/apply_migrations.js
 ```
 
 En la VM, migración + deploy del microservicio en un solo paso: ver [deploy.md](deploy.md) (sección *En la VM*) y `scripts/vm_migrate_then_deploy.sh`.
@@ -139,7 +139,7 @@ En la VM, migración + deploy del microservicio en un solo paso: ver [deploy.md]
 Crear usuario inicial del panel:
 
 ```
-PGURL='postgres://...' node scripts/crear_usuario_panel.js \
+PGURL='postgres://USUARIO:PASS@127.0.0.1:5432/evolution' node scripts/crear_usuario_panel.js \
   --slug tom-bot --email vos@tu-resto.com --password una-segura
 ```
 
