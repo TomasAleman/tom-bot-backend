@@ -633,7 +633,8 @@ export async function registerReservasRoutes(fastify, ctx) {
     return { reserva: { ...rows[0], id: Number(rows[0].id) } };
   });
 
-  fastify.post('/:id/no-show', { preHandler: requireWriteAccess }, async (req, reply) => {
+  // Recepcionista puede marcar inasistencia; editar/cancelar siguen con requireWriteAccess.
+  fastify.post('/:id/no-show', async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return reply.code(400).send({ error: 'bad_request' });
