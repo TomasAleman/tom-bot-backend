@@ -316,7 +316,7 @@ export async function registerReservasRoutes(fastify, ctx) {
     if (f.dia_hasta) { where.push(`r.dia <= $${i++}::date`); params.push(f.dia_hasta); }
     if (f.estado)    { where.push(`r.estado = $${i++}`);     params.push(f.estado); }
     if (f.q) {
-      where.push(`(unaccent(r.nombre) ILIKE unaccent($${i}) OR r.telefono ILIKE $${i})`);
+      where.push(`(r.nombre ILIKE $${i} OR r.telefono ILIKE $${i})`);
       params.push(`%${f.q}%`);
       i++;
     }
