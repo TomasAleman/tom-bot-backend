@@ -39,8 +39,9 @@ cd "$REPO_ROOT/microservice"
 docker build -t "$IMAGE_NAME" .
 docker compose -f "$COMPOSE_FILE" up -d microservice --force-recreate
 
-echo "==> health"
-curl -sS "http://127.0.0.1:3000/health" || true
+echo "==> health (espera breve: el proceso a veces tarda unos segundos en escuchar)"
+sleep 3
+curl -sS --retry 3 --retry-delay 2 "http://127.0.0.1:3000/health" || true
 echo
 curl -sI "http://127.0.0.1:3000/admin/" | head -5 || true
 echo "Listo (backend desde $DEPLOY_BRANCH)."
