@@ -33,11 +33,14 @@ const PatchSchema = z.object({
     z.number().int().min(0).max(1439),
     z.string().regex(/^\d{1,2}:\d{2}$/),
   ]).optional(),
+  /** Solo junte (≥2 mesas): una sola llamada atómica con fn_modificar_reserva_junte. */
+  mesas: z.array(z.string().trim().min(1).max(20)).min(2).max(20).optional(),
 }).refine((d) => Object.keys(d).length > 0, { message: 'al menos un campo es requerido' });
 
 const DisponibilidadQuery = z.object({
   dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   personas: z.coerce.number().int().min(1).max(50),
+  exclude_reserva_id: z.coerce.number().int().positive().optional(),
 });
 
 const CrearReservaSchema = z.object({
@@ -60,6 +63,7 @@ const MesasLibresQuery = z.object({
     z.coerce.number().int().min(0).max(1439),
     z.string().regex(/^\d{1,2}:\d{2}$/),
   ]),
+  exclude_reserva_id: z.coerce.number().int().positive().optional(),
 });
 
 function buildOrderBy(order) {
@@ -126,6 +130,13 @@ function hhmmToMin(raw) {
   return h * 60 + mi;
 }
 
+/** Fecha YYYY-MM-DD desde valor PG (Date o string). */
+function diaIsoFromRow(d) {
+  if (d == null) return null;
+  const s = String(d);
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
+
 export async function registerReservasRoutes(fastify, ctx) {
   fastify.addHook('preHandler', authHook);
 
@@ -134,7 +145,7 @@ export async function registerReservasRoutes(fastify, ctx) {
     if (!parsed.success) {
       return reply.code(400).send({ error: 'bad_request', issues: parsed.error.issues });
     }
-    const { dia, personas } = parsed.data;
+    const { dia, personas, exclude_reserva_id: excludeReservaId } = parsed.data;
     const restauranteId = req.user.restaurante_id;
 
     const { rows: mesasRows } = await ctx.pgPool.query(
@@ -191,6 +202,7 @@ export async function registerReservasRoutes(fastify, ctx) {
              WHERE r2.restaurante_id = $2
                AND r2.dia = $4::date
                AND lower(r2.estado) = 'confirmada'
+               AND ($5::bigint IS NULL OR r2.id <> $5::bigint)
                AND tombot.fn_misma_franja(
                      mins.min,
                      r2.horario_hora,
@@ -210,11 +222,11 @@ export async function registerReservasRoutes(fastify, ctx) {
            )
          LIMIT 1
       )
-        OR tombot.fn_suma_capacidad_mesas_libres($2, $4::date, mins.min) >= $3
+        OR tombot.fn_suma_capacidad_mesas_libres($2, $4::date, mins.min, $5::bigint) >= $3
       )
       ORDER BY mins.min ASC
       `,
-      [minutes, restauranteId, personas, dia]
+      [minutes, restauranteId, personas, dia, excludeReservaId ?? null]
     );
 
     return { horarios: rows.map((r) => ({ valor: Number(r.valor), label: r.label })), turnos };
@@ -225,7 +237,7 @@ export async function registerReservasRoutes(fastify, ctx) {
     if (!parsed.success) {
       return reply.code(400).send({ error: 'bad_request', issues: parsed.error.issues });
     }
-    const { dia } = parsed.data;
+    const { dia, exclude_reserva_id: excludeReservaId } = parsed.data;
     let horarioMin = null;
     if (typeof parsed.data.horario === 'number') horarioMin = parsed.data.horario;
     else horarioMin = hhmmToMin(parsed.data.horario);
@@ -250,6 +262,7 @@ export async function registerReservasRoutes(fastify, ctx) {
                 WHERE r.restaurante_id = $1
                   AND r.dia = $2::DATE
                   AND r.estado = 'Confirmada'
+                  AND ($4::bigint IS NULL OR r.id <> $4::bigint)
                   AND tombot.fn_misma_franja(
                         $3::INT,
                         r.horario_hora,
@@ -268,7 +281,7 @@ export async function registerReservasRoutes(fastify, ctx) {
                   )
           )
         ORDER BY m.numero_mesa ASC`,
-      [restauranteId, dia, horarioMin]
+      [restauranteId, dia, horarioMin, excludeReservaId ?? null]
     );
 
     return { mesas: rows };
@@ -359,6 +372,86 @@ export async function registerReservasRoutes(fastify, ctx) {
     }
 
     const updates = parsed.data;
+    const mesasJunte = updates.mesas;
+
+    if (mesasJunte && mesasJunte.length >= 2) {
+      const diaIso = updates.dia ?? diaIsoFromRow(existing.dia);
+      if (!diaIso) {
+        return reply.code(400).send({ error: 'bad_request', message: 'dia requerido o inválido' });
+      }
+      const personas = updates.personas ?? Number(existing.personas);
+
+      let horarioMin = null;
+      if (updates.horario !== undefined) {
+        if (typeof updates.horario === 'number') {
+          horarioMin = updates.horario <= 23 ? updates.horario * 60 : updates.horario;
+        } else {
+          horarioMin = hhmmToMin(updates.horario);
+        }
+      } else {
+        horarioMin = Number(existing.horario_hora);
+      }
+      if (horarioMin == null || !Number.isFinite(horarioMin) || horarioMin < 0 || horarioMin > 1439) {
+        return reply.code(400).send({ error: 'bad_request', message: 'horario invalido' });
+      }
+
+      const { rows: mesasRows } = await ctx.pgPool.query(
+        `SELECT horario_manana, horario_mediodia, horario_tarde
+           FROM tombot.mesas
+          WHERE restaurante_id = $1 AND activa = TRUE`,
+        [restauranteId]
+      );
+      const turnosSet = new Set();
+      for (const m of mesasRows) {
+        if (m.horario_manana) turnosSet.add(m.horario_manana);
+        if (m.horario_mediodia) turnosSet.add(m.horario_mediodia);
+        if (m.horario_tarde) turnosSet.add(m.horario_tarde);
+      }
+      const turnos = [...turnosSet].sort();
+      const turno = turnos.find((t) => {
+        const b = parseTurnoBounds(t);
+        return b && horarioMin >= b.start && horarioMin < b.end;
+      }) || null;
+
+      if (!turno) {
+        return reply.code(400).send({ error: 'bad_request', message: 'horario fuera de los turnos configurados' });
+      }
+
+      const { rows: labelRows } = await ctx.pgPool.query(
+        `SELECT regexp_replace(tombot.fn_horario_label_desde_minutos($1::int), 'hs$', '') AS label`,
+        [horarioMin]
+      );
+      const horarioLabel = labelRows?.[0]?.label || null;
+
+      const nombreSql = updates.nombre !== undefined ? String(updates.nombre).trim() : null;
+
+      const { rows } = await ctx.pgPool.query(
+        `SELECT id, restaurante_id, nombre, telefono, dia, horario_hora,
+                horario_label, turno, personas, numero_mesa, estado
+           FROM tombot.fn_modificar_reserva_junte($1::bigint, $2::date, $3::int, $4::text, $5::text, $6::int, $7::text[], $8::text)`,
+        [id, diaIso, horarioMin, horarioLabel, turno, personas, mesasJunte, nombreSql]
+      );
+      if (rows.length === 0) {
+        return reply.code(409).send({
+          error: 'sin_disponibilidad',
+          message: 'no fue posible aplicar el junte de mesas (cupos, horario o mesas inválidas)',
+        });
+      }
+      const row = rows[0];
+      if (Number(row.restaurante_id) !== Number(restauranteId)) {
+        return reply.code(403).send({ error: 'forbidden' });
+      }
+
+      await logEvent(ctx, restauranteId, 'panel_reserva_editada_junte', {
+        reserva_id: id,
+        cambios: updates,
+        por_usuario: req.user.usuario_id,
+      });
+
+      const full = await fetchReserva(ctx, restauranteId, id);
+      return { reserva: { ...full, id: Number(full.id) } };
+    }
+
     let last = null;
 
     for (const [campo, valor] of Object.entries(updates)) {
