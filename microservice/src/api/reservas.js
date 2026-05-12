@@ -50,6 +50,16 @@ const CrearReservaSchema = z.object({
     z.string().regex(/^\d{1,2}:\d{2}$/),
   ]),
   personas: z.coerce.number().int().min(1).max(50),
+  /** Solo admin (requireWriteAccess): varias mesas = junte. */
+  mesas: z.array(z.string().trim().min(1).max(20)).min(1).max(20).optional(),
+});
+
+const MesasLibresQuery = z.object({
+  dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  horario: z.union([
+    z.coerce.number().int().min(0).max(1439),
+    z.string().regex(/^\d{1,2}:\d{2}$/),
+  ]),
 });
 
 function buildOrderBy(order) {
@@ -74,11 +84,17 @@ async function logEvent(ctx, restauranteId, tipo, payload) {
 
 async function fetchReserva(ctx, restauranteId, id) {
   const { rows } = await ctx.pgPool.query(
-    `SELECT id, restaurante_id, nombre, telefono, dia, horario_hora,
-            horario_label, turno, personas, numero_mesa, estado,
-            created_at, updated_at
-       FROM tombot.reservas
-      WHERE restaurante_id = $1 AND id = $2
+    `SELECT r.id, r.restaurante_id, r.nombre, r.telefono, r.dia, r.horario_hora,
+            r.horario_label, r.turno, r.personas, r.numero_mesa, r.estado,
+            r.created_at, r.updated_at,
+            COALESCE(
+              (SELECT array_agg(rm.numero_mesa ORDER BY rm.numero_mesa)
+                 FROM tombot.reserva_mesas rm
+                WHERE rm.reserva_id = r.id),
+              ARRAY[r.numero_mesa]::text[]
+            ) AS mesas
+       FROM tombot.reservas r
+      WHERE r.restaurante_id = $1 AND r.id = $2
       LIMIT 1`,
     [restauranteId, id]
   );
@@ -157,7 +173,8 @@ export async function registerReservasRoutes(fastify, ctx) {
         mins.min AS valor,
         regexp_replace(tombot.fn_horario_label_desde_minutos(mins.min), 'hs$', '') AS label
       FROM mins
-      WHERE EXISTS (
+      WHERE (
+        EXISTS (
         SELECT 1
           FROM tombot.mesas m
          WHERE m.restaurante_id = $2
@@ -174,7 +191,6 @@ export async function registerReservasRoutes(fastify, ctx) {
              WHERE r2.restaurante_id = $2
                AND r2.dia = $4::date
                AND lower(r2.estado) = 'confirmada'
-               AND r2.numero_mesa = m.numero_mesa
                AND tombot.fn_misma_franja(
                      mins.min,
                      r2.horario_hora,
@@ -182,8 +198,19 @@ export async function registerReservasRoutes(fastify, ctx) {
                      m.horario_mediodia,
                      m.horario_tarde
                    )
+               AND (
+                    r2.numero_mesa = m.numero_mesa
+                 OR EXISTS (
+                        SELECT 1
+                          FROM tombot.reserva_mesas rm
+                         WHERE rm.reserva_id = r2.id
+                           AND rm.numero_mesa = m.numero_mesa
+                    )
+               )
            )
          LIMIT 1
+      )
+        OR tombot.fn_suma_capacidad_mesas_libres($2, $4::date, mins.min) >= $3
       )
       ORDER BY mins.min ASC
       `,
@@ -191,6 +218,60 @@ export async function registerReservasRoutes(fastify, ctx) {
     );
 
     return { horarios: rows.map((r) => ({ valor: Number(r.valor), label: r.label })), turnos };
+  });
+
+  fastify.get('/disponibilidad/mesas-libres', { preHandler: [requireWriteAccess, requireRestaurante] }, async (req, reply) => {
+    const parsed = MesasLibresQuery.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'bad_request', issues: parsed.error.issues });
+    }
+    const { dia } = parsed.data;
+    let horarioMin = null;
+    if (typeof parsed.data.horario === 'number') horarioMin = parsed.data.horario;
+    else horarioMin = hhmmToMin(parsed.data.horario);
+    if (horarioMin == null || !Number.isFinite(horarioMin) || horarioMin < 0 || horarioMin > 1439) {
+      return reply.code(400).send({ error: 'bad_request', message: 'horario invalido' });
+    }
+    const restauranteId = req.user.restaurante_id;
+
+    const { rows } = await ctx.pgPool.query(
+      `SELECT m.numero_mesa, m.min_personas, m.max_personas
+         FROM tombot.mesas m
+        WHERE m.restaurante_id = $1
+          AND m.activa = TRUE
+          AND (
+               (m.horario_manana   IS NOT NULL AND tombot.fn_hora_en_turno($3::INT, m.horario_manana))
+            OR (m.horario_mediodia IS NOT NULL AND tombot.fn_hora_en_turno($3::INT, m.horario_mediodia))
+            OR (m.horario_tarde    IS NOT NULL AND tombot.fn_hora_en_turno($3::INT, m.horario_tarde))
+          )
+          AND NOT EXISTS (
+               SELECT 1
+                 FROM tombot.reservas r
+                WHERE r.restaurante_id = $1
+                  AND r.dia = $2::DATE
+                  AND r.estado = 'Confirmada'
+                  AND tombot.fn_misma_franja(
+                        $3::INT,
+                        r.horario_hora,
+                        m.horario_manana,
+                        m.horario_mediodia,
+                        m.horario_tarde
+                      )
+                  AND (
+                       r.numero_mesa = m.numero_mesa
+                    OR EXISTS (
+                           SELECT 1
+                             FROM tombot.reserva_mesas rm
+                            WHERE rm.reserva_id = r.id
+                              AND rm.numero_mesa = m.numero_mesa
+                       )
+                  )
+          )
+        ORDER BY m.numero_mesa ASC`,
+      [restauranteId, dia, horarioMin]
+    );
+
+    return { mesas: rows };
   });
 
   fastify.get('/', async (req, reply) => {
@@ -220,7 +301,13 @@ export async function registerReservasRoutes(fastify, ctx) {
 
     const dataSql = `
       SELECT r.id, r.nombre, r.telefono, r.dia, r.horario_hora, r.horario_label,
-             r.turno, r.personas, r.numero_mesa, r.estado, r.created_at, r.updated_at
+             r.turno, r.personas, r.numero_mesa, r.estado, r.created_at, r.updated_at,
+             COALESCE(
+               (SELECT array_agg(rm.numero_mesa ORDER BY rm.numero_mesa)
+                  FROM tombot.reserva_mesas rm
+                 WHERE rm.reserva_id = r.id),
+               ARRAY[r.numero_mesa]::text[]
+             ) AS mesas
         FROM tombot.reservas r
         ${whereSql}
         ORDER BY ${orderBy}
@@ -327,6 +414,7 @@ export async function registerReservasRoutes(fastify, ctx) {
     const personas = Number(body.personas);
     const telefono = String(body.telefono || '').trim();
     const nombre = String(body.nombre || '').trim();
+    const mesasJunte = Array.isArray(body.mesas) && body.mesas.length > 0 ? body.mesas : null;
 
     let horarioMin = null;
     if (typeof body.horario === 'number') horarioMin = body.horario;
@@ -362,6 +450,28 @@ export async function registerReservasRoutes(fastify, ctx) {
       [horarioMin]
     );
     const horarioLabel = labelRows?.[0]?.label || null;
+
+    if (mesasJunte) {
+      const { rows: jRows } = await ctx.pgPool.query(
+        `SELECT id_reserva, numero_mesa
+           FROM tombot.fn_confirmar_reserva_junte($1, $2, $3, $4::DATE, $5::INT, $6, $7, $8::INT, $9::text[])`,
+        [restauranteId, nombre, telefono, body.dia, horarioMin, horarioLabel, turno, personas, mesasJunte]
+      );
+      const idReserva = jRows?.[0]?.id_reserva ? Number(jRows[0].id_reserva) : null;
+      if (!idReserva) {
+        return reply.code(409).send({
+          error: 'sin_disponibilidad',
+          message: 'no se pudo confirmar el junte de mesas (cupos u horario)',
+        });
+      }
+      const reserva = await fetchReserva(ctx, restauranteId, idReserva);
+      await logEvent(ctx, restauranteId, 'panel_reserva_creada_junte', {
+        reserva_id: idReserva,
+        mesas: mesasJunte,
+        por_usuario: req.user.usuario_id,
+      });
+      return reply.code(201).send({ reserva: { ...reserva, id: Number(reserva.id) } });
+    }
 
     const { rows: mesaRows } = await ctx.pgPool.query(
       `SELECT numero_mesa, turnos_alternativos
