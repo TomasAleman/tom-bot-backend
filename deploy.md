@@ -57,7 +57,7 @@ chmod +x scripts/vm_migrate_then_deploy.sh scripts/vm_deploy_release.sh scripts/
 # Pegá la salida EXACTA de: docker exec <contenedor> printenv PGURL
 # (si el host es "postgres", el script migra vía Docker en la misma red del compose)
 export PGURL='postgres://evo:CONTRASENA_REAL@postgres:5432/evolution'
-export COMPOSE_FILE=/ruta/a/docker-compose.core.yml   # solo si no usás ~/docker-compose.core.yml
+export COMPOSE_FILE=/ruta/a/docker-compose.core.yml   # solo si no usás ~/docker-compose.core.yml ni /opt/tombot/... (no pegues ... como ruta)
 
 bash scripts/vm_migrate_then_deploy.sh
 ```

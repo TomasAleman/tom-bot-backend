@@ -20,14 +20,12 @@ REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 COMPOSE_FILE="${COMPOSE_FILE:-$HOME/docker-compose.core.yml}"
 COMPOSE_SERVICE="${COMPOSE_SERVICE:-microservice}"
 
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/vm_resolve_compose.inc.sh"
+vm_resolve_compose_file || exit 1
+
 if [[ -z "${PGURL:-}" ]]; then
   echo "ERROR: definí PGURL" >&2
-  exit 1
-fi
-
-if [[ ! -f "$COMPOSE_FILE" ]]; then
-  echo "ERROR: no existe COMPOSE_FILE=$COMPOSE_FILE" >&2
-  echo "Exportá la ruta real al docker-compose.core.yml del stack." >&2
   exit 1
 fi
 

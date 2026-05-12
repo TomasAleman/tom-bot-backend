@@ -24,16 +24,9 @@ DEPLOY_BRANCH="${DEPLOY_BRANCH:-release}"
 COMPOSE_FILE="${COMPOSE_FILE:-$HOME/docker-compose.core.yml}"
 IMAGE_NAME="${IMAGE_NAME:-tom-bot-microservice:latest}"
 
-if [[ ! -f "$COMPOSE_FILE" ]]; then
-  echo "ERROR: no existe el archivo de compose: $COMPOSE_FILE" >&2
-  echo "" >&2
-  echo "Indicá la ruta del stack core (docker-compose.core.yml), por ejemplo:" >&2
-  echo "  COMPOSE_FILE=/ruta/completa/docker-compose.core.yml bash scripts/vm_deploy_release.sh" >&2
-  echo "" >&2
-  echo "Para buscarlo en la VM:" >&2
-  echo "  find \"\$HOME\" /opt -maxdepth 5 -name 'docker-compose*.yml' 2>/dev/null" >&2
-  exit 1
-fi
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/vm_resolve_compose.inc.sh"
+vm_resolve_compose_file || exit 1
 
 cd "$REPO_ROOT"
 echo "==> Rama actual: $(git rev-parse --abbrev-ref HEAD)"
