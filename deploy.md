@@ -48,6 +48,12 @@ Ejemplos de **host válido**: `127.0.0.1` (desde la VM, con el puerto de Postgre
 
 **Orden:** primero `git pull` (así existen los scripts en disco) y **después** `chmod`.
 
+Si `git pull` falla por *“local changes would be overwritten”* en `scripts/`, descartá copias locales y alineá con el repo (o usá `git stash`):
+
+```bash
+git checkout -- scripts/vm_apply_migrations_docker.sh scripts/vm_deploy_release.sh scripts/vm_resolve_compose.inc.sh
+```
+
 ```bash
 cd ~/tom-bot-backend   # o la ruta real del repo en la VM
 git fetch origin && git checkout release && git pull origin release
