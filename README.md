@@ -136,18 +136,26 @@ PGURL='postgres://USUARIO:PASS@127.0.0.1:5432/evolution' node scripts/apply_migr
 
 En la VM, migración + deploy del microservicio en un solo paso: ver [deploy.md](deploy.md) (sección *En la VM*) y `scripts/vm_migrate_then_deploy.sh`.
 
-Crear usuario inicial del panel:
+Crear usuario inicial del panel (por restaurante, requiere `slug` existente):
 
 ```
 PGURL='postgres://USUARIO:PASS@127.0.0.1:5432/evolution' node scripts/crear_usuario_panel.js \
   --slug tom-bot --email vos@tu-resto.com --password una-segura
 ```
 
+**Superadmin** (alta de restaurantes en el panel, `restaurante_id` NULL): no se crea por API; ejecutá el script **desde `microservice/`** para que resuelva `pg` y `bcryptjs`:
+
+```powershell
+cd microservice
+$env:PGURL="postgres://evo:evo@127.0.0.1:5432/evolution"
+node ../scripts/crear_superadmin_panel.js --email=admin@local.dev --password=TuClaveSegura8
+```
+
 ## Scripts incluidos
 
 - **`scripts/vm_deploy_release.sh`** — deploy en VM desde `release` (docker).
 - **`scripts/deploy_microservice.sh`** — rsync desde PC + build remoto (solo rama `release`).
-- `scripts/apply_migrations.js`, `scripts/crear_usuario_panel.js`, backup/restore, etc.
+- `scripts/apply_migrations.js`, `scripts/crear_usuario_panel.js`, `scripts/crear_superadmin_panel.js`, backup/restore, etc.
 
 ## Troubleshooting
 

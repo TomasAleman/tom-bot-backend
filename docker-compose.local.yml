@@ -1,3 +1,6 @@
+# Infra mínima local: Postgres (TomBot), Postgres (Evolution API), Redis, Evolution API.
+# Backend y frontend: correrlos desde el IDE (npm run dev) apuntando a localhost.
+# n8n: docker compose -f docker-compose.n8n.local.yml up -d
 name: tombot-local
 
 services:
@@ -29,17 +32,36 @@ services:
       timeout: 3s
       retries: 30
 
+  # Imagen oficial: evoapicloud/evolution-api (no confundir con "evolutionapi/..." de ejemplos viejos).
+  #
+  # Manager "Error : Unauthorized" al CREAR instancia: el SPA solo manda header "apikey" si en el
+  # navegador existe localStorage "token" (y "apiUrl"/"version"). Si quedó basura de otra sesión,
+  # F12 → Application → Local Storage → tu origen (ej. http://localhost:8081) → borrá apiUrl, token,
+  # version, clientName y volvé a /manager/login. URL del servidor = raíz de la API (ej.
+  # http://localhost:8081) SIN /manager. Misma URL que SERVER_URL abajo (no mezclar localhost y 127.0.0.1).
+  # Atajo sin Manager: scripts/evolution_local_create_instance.ps1
   evolution-api:
-    image: evoapicloud/evolution-api:v2.3.7
+    image: evoapicloud/evolution-api:latest
     ports:
       - "8081:8080"
+    volumes:
+      - tombot_evolution_instances:/evolution/instances
     environment:
-      # API key global (admin) para crear/gestionar instancias en local
+      SERVER_TYPE: http
+      SERVER_PORT: "8080"
+      AUTHENTICATION_TYPE: apikey
       AUTHENTICATION_API_KEY: tom-bot-evo-local
-      # DB requerida por Evolution API v2 (sin esto tira: "Database provider invalid")
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "true"
+      # Misma URL que uses en el navegador para abrir el Manager (host + puerto publicado).
+      SERVER_URL: http://localhost:8081
+      CORS_ORIGIN: "*"
+      CORS_METHODS: GET,POST,PUT,DELETE
+      CORS_CREDENTIALS: "true"
+      DATABASE_ENABLED: "true"
       DATABASE_PROVIDER: postgresql
       DATABASE_CONNECTION_URI: postgresql://evoapi:evoapi@evolution-postgres:5432/evolutionapi?schema=public
-      # Cache Redis (recomendado)
+      DATABASE_CONNECTION_CLIENT_NAME: tombot_local
+      DATABASE_SAVE_DATA_INSTANCE: "true"
       CACHE_REDIS_ENABLED: "true"
       CACHE_REDIS_URI: redis://redis:6379
       CACHE_REDIS_PREFIX_KEY: evolution_local
@@ -66,54 +88,8 @@ services:
       timeout: 3s
       retries: 30
 
-  n8n-postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: n8n
-      POSTGRES_PASSWORD: n8n
-      POSTGRES_DB: n8n
-    ports:
-      - "5433:5432"
-    volumes:
-      - tombot_n8n_pg:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U n8n -d n8n"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
-
-  n8n:
-    image: n8nio/n8n:latest
-    ports:
-      - "5678:5678"
-    environment:
-      N8N_HOST: localhost
-      N8N_PORT: 5678
-      N8N_PROTOCOL: http
-      WEBHOOK_URL: http://localhost:5678/
-      GENERIC_TIMEZONE: America/Argentina/Buenos_Aires
-      DB_TYPE: postgresdb
-      DB_POSTGRESDB_HOST: n8n-postgres
-      DB_POSTGRESDB_PORT: 5432
-      DB_POSTGRESDB_DATABASE: n8n
-      DB_POSTGRESDB_USER: n8n
-      DB_POSTGRESDB_PASSWORD: n8n
-      # Cambiar si vas a persistir credenciales reales incluso en local.
-      N8N_ENCRYPTION_KEY: local-dev-encryption-key-change-me
-      # Opcional: descomentar para pedir login (recomendado)
-      # N8N_BASIC_AUTH_ACTIVE: "true"
-      # N8N_BASIC_AUTH_USER: "admin"
-      # N8N_BASIC_AUTH_PASSWORD: "admin"
-    volumes:
-      - tombot_n8n_data:/home/node/.n8n
-      # Monta tu repo de workflows para importar/exportar JSON fácilmente.
-      - ../../10 SKILLS ADRI Y JUANPE/kit-automatizaciones-n8n/workflows:/workflows:ro
-    depends_on:
-      n8n-postgres:
-        condition: service_healthy
-
-  # Aplica migraciones SQL (one-shot). Podés correrlo cuando quieras:
-  # docker compose -f docker-compose.local.yml run --rm migrate
+  # Migraciones SQL (one-shot). Ejemplo:
+  # docker compose -f docker-compose.local.yml --profile tools run --rm migrate
   migrate:
     image: node:20-alpine
     working_dir: /repo
@@ -127,49 +103,8 @@ services:
     command: ["sh", "-lc", "npm install --prefix microservice && NODE_PATH=/repo/microservice/node_modules node scripts/apply_migrations.js"]
     profiles: ["tools"]
 
-  backend:
-    image: node:20-alpine
-    working_dir: /app
-    environment:
-      PORT: "3000"
-      PGURL: postgres://evo:evo@postgres:5432/evolution
-      REDIS_URL: redis://redis:6379
-      EVOLUTION_URL: http://evolution-api:8080
-      GROQ_API_KEY: local-dev
-      JWT_SECRET: local-dev-secret-change-me
-      PANEL_PUBLIC_DIR: /opt/tombot/panel-public
-      LOG_LEVEL: info
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./microservice:/app
-      - tombot_backend_node_modules:/app/node_modules
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    command: ["sh", "-lc", "npm install && npm run dev"]
-
-  frontend:
-    image: node:20-alpine
-    working_dir: /app
-    environment:
-      # El browser corre en tu máquina, así que este baseURL debe apuntar al host.
-      VITE_API_BASE_URL: http://localhost:3000/api
-    ports:
-      - "5173:5173"
-    volumes:
-      - ../tom-bot-frontend:/app
-      - tombot_frontend_node_modules:/app/node_modules
-    command: ["sh", "-lc", "npm install && npm run dev -- --host 0.0.0.0 --port 5173"]
-
 volumes:
   tombot_pg:
   tombot_redis:
   tombot_evolution_pg:
-  tombot_n8n_pg:
-  tombot_n8n_data:
-  tombot_backend_node_modules:
-  tombot_frontend_node_modules:
-
+  tombot_evolution_instances:

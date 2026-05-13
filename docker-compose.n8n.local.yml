@@ -1,0 +1,51 @@
+# n8n en local, aparte del stack core (Evolution + Redis + Postgres TomBot).
+# Levantar: docker compose -f docker-compose.n8n.local.yml up -d
+name: tombot-n8n-local
+
+services:
+  n8n-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: n8n
+      POSTGRES_PASSWORD: n8n
+      POSTGRES_DB: n8n
+    ports:
+      - "5433:5432"
+    volumes:
+      - tombot_n8n_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n -d n8n"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  n8n:
+    image: n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    environment:
+      N8N_HOST: localhost
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://localhost:5678/
+      GENERIC_TIMEZONE: America/Argentina/Buenos_Aires
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: n8n-postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: n8n
+      N8N_ENCRYPTION_KEY: local-dev-encryption-key-change-me
+      # N8N_BASIC_AUTH_ACTIVE: "true"
+      # N8N_BASIC_AUTH_USER: "admin"
+      # N8N_BASIC_AUTH_PASSWORD: "admin"
+    volumes:
+      - tombot_n8n_data:/home/node/.n8n
+      - ../../10 SKILLS ADRI Y JUANPE/kit-automatizaciones-n8n/workflows:/workflows:ro
+    depends_on:
+      n8n-postgres:
+        condition: service_healthy
+
+volumes:
+  tombot_n8n_pg:
+  tombot_n8n_data:
