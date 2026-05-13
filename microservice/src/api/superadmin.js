@@ -3,12 +3,49 @@ import bcrypt from 'bcryptjs';
 import { authHook } from '../middleware/auth.js';
 import { requireSuperadmin } from '../middleware/authz.js';
 
+const emptyToUndef = (v) => (v === '' || v === null || v === undefined ? undefined : v);
+
+/** Slug URL-safe: minúsculas, guiones (los _ se convierten a -). Vacío → undefined (usa slug derivado del nombre). */
+function normalizeSlugInput(v) {
+  const raw = emptyToUndef(v);
+  if (raw === undefined) return undefined;
+  const s = String(raw)
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, '-')
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return s === '' ? undefined : s;
+}
+
 const CreateRestauranteSchema = z.object({
-  slug: z.string().trim().min(2).max(60).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(),
+  slug: z.preprocess(
+    normalizeSlugInput,
+    z.string().min(2).max(60).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional()
+  ),
   nombre: z.string().trim().min(2).max(120),
-  timezone: z.string().trim().min(3).max(80).optional(),
-  instancia_evolution: z.string().trim().min(2).max(80).optional(),
-  evolution_api_key: z.string().trim().min(10).max(512),
+  timezone: z.preprocess(
+    (v) => {
+      const u = emptyToUndef(v);
+      if (u === undefined) return undefined;
+      const t = String(u).trim();
+      return t === '' ? undefined : t;
+    },
+    z.string().min(3).max(80).optional()
+  ),
+  instancia_evolution: z.preprocess(
+    (v) => {
+      const u = emptyToUndef(v);
+      if (u === undefined) return undefined;
+      const t = String(u).trim();
+      return t === '' ? undefined : t;
+    },
+    z.string().min(2).max(80).optional()
+  ),
+  evolution_api_key: z.preprocess(
+    (v) => (typeof v === 'string' ? v.trim() : v),
+    z.string().min(10).max(512)
+  ),
   admin_email: z.string().trim().toLowerCase().email().max(160),
   admin_password: z.string().min(8).max(200),
   admin_nombre: z.preprocess(
