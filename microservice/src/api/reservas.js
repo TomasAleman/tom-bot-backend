@@ -139,8 +139,27 @@ function parseTurnoBounds(turnoStr) {
   if (sm < 0 || sm > 59 || em < 0 || em > 59) return null;
   const start = sh * 60 + sm;
   const end = eh * 60 + em;
-  if (end <= start) return null;
-  return { start, end };
+  if (end === start) return null;
+  return { start, end, crossesMidnight: end < start };
+}
+
+/** Misma semántica que tombot.fn_hora_en_turno (inicio inclusivo, fin exclusivo). */
+function horaEnTurno(horarioMin, start, end) {
+  if (end > start) return horarioMin >= start && horarioMin < end;
+  return horarioMin >= start || horarioMin < end;
+}
+
+function enumerateTurnoMinutes(bounds) {
+  const out = [];
+  if (!bounds) return out;
+  const { start, end, crossesMidnight } = bounds;
+  if (!crossesMidnight) {
+    for (let v = start; v < end; v += 15) out.push(v);
+    return out;
+  }
+  for (let v = start; v < 1440; v += 15) out.push(v);
+  for (let v = 0; v < end; v += 15) out.push(v);
+  return out;
 }
 
 function hhmmToMin(raw) {
@@ -223,7 +242,7 @@ async function resolverTurnoYLabel(pool, restauranteId, horarioMin) {
   const turnos = [...turnosSet].sort();
   const turno = turnos.find((t) => {
     const b = parseTurnoBounds(t);
-    return b && horarioMin >= b.start && horarioMin < b.end;
+    return b && horaEnTurno(horarioMin, b.start, b.end);
   }) || null;
   if (!turno) return { turno: null, horarioLabel: null };
   const { rows: labelRows } = await pool.query(
@@ -266,7 +285,7 @@ export async function registerReservasRoutes(fastify, ctx) {
     for (const t of turnos) {
       const b = parseTurnoBounds(t);
       if (!b) continue;
-      for (let v = b.start; v < b.end; v += 15) minutesSet.add(v);
+      for (const v of enumerateTurnoMinutes(b)) minutesSet.add(v);
     }
     const minutes = [...minutesSet].sort((a, b) => a - b);
 
@@ -473,7 +492,7 @@ export async function registerReservasRoutes(fastify, ctx) {
       const turnos = [...turnosSet].sort();
       const turno = turnos.find((t) => {
         const b = parseTurnoBounds(t);
-        return b && horarioMin >= b.start && horarioMin < b.end;
+        return b && horaEnTurno(horarioMin, b.start, b.end);
       }) || null;
 
       if (!turno) {

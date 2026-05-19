@@ -74,7 +74,11 @@ docker compose -f docker-compose.core.yml exec -T postgres psql -U postgres -d e
     (TEXT nullable) y `restaurantes.mostrar_menu` (BOOLEAN NOT NULL DEFAULT
     TRUE). El workflow n8n y el microservice leen estos campos en "Cargar
     contexto". Aplicar migración antes de importar el workflow actualizado.
-13. **019_fix_modificar_horario_label_hhmm.sql** — corrige `fn_modificar_reserva`
+13. **024_turnos_cruzan_medianoche.sql** — `fn_hora_en_turno` admite turnos con
+    fin &lt; inicio (cruzan medianoche, ej. `19:00-00:30`: válido desde las 19:00
+    hasta 00:15 en pasos de reserva). Misma semántica inclusivo/exclusivo; turnos
+    diurnos sin cambios.
+14. **019_fix_modificar_horario_label_hhmm.sql** — corrige `fn_modificar_reserva`
     (rama `horario`): deja de guardar `horario_label` como minutos + `hs`
     (ej. `1320hs`) y vuelve a `fn_parse_minutos_desde_texto` +
     `fn_horario_label_desde_minutos` en formato **HH:MM**. Actualiza etiquetas

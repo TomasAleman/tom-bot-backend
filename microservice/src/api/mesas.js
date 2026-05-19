@@ -11,8 +11,8 @@ import { z } from 'zod';
 import { authHook } from '../middleware/auth.js';
 import { requireWriteAccess } from '../middleware/authz.js';
 
-// Formato HH:MM-HH:MM (inicio inclusivo, fin exclusivo). El panel restringe a
-// pasos de 15 min en la UI, pero la API acepta cualquier minuto valido.
+// Formato HH:MM-HH:MM (inicio inclusivo, fin exclusivo). Si fin < inicio, el turno
+// cruza medianoche (ej. 19:00-00:30). El panel restringe a pasos de 15 min en la UI.
 const HORARIO_REGEX = /^([01]?\d|2[0-3]):[0-5]\d-([01]?\d|2[0-3]):[0-5]\d$/;
 
 function turnoToMinutos(s) {
@@ -27,7 +27,7 @@ function turnoToMinutos(s) {
 function turnoValido(s) {
   if (s === null || s === undefined) return true;
   const r = turnoToMinutos(s);
-  return Boolean(r) && r.endMin > r.startMin;
+  return Boolean(r) && r.endMin !== r.startMin;
 }
 
 const MesaShapeBase = z.object({
@@ -56,7 +56,7 @@ const MesaCreateSchema = MesaShapeBase
       turnoValido(d.horario_manana) &&
       turnoValido(d.horario_mediodia) &&
       turnoValido(d.horario_tarde),
-    { message: 'el fin de cada turno debe ser posterior al inicio' }
+    { message: 'el fin de cada turno debe ser distinto del inicio' }
   );
 
 const MesaUpdateSchema = MesaShapeBase.partial()
@@ -73,7 +73,7 @@ const MesaUpdateSchema = MesaShapeBase.partial()
       turnoValido(d.horario_manana) &&
       turnoValido(d.horario_mediodia) &&
       turnoValido(d.horario_tarde),
-    { message: 'el fin de cada turno debe ser posterior al inicio' }
+    { message: 'el fin de cada turno debe ser distinto del inicio' }
   );
 
 async function fetchMesa(ctx, restauranteId, id) {
