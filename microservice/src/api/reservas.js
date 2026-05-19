@@ -178,10 +178,16 @@ function diaIsoFromRow(d) {
   return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
-/** Minutos 0–1439 desde body (POST/PATCH): número 0–23 = hora en punto. */
+/**
+ * Minutos 0–1439 desde body (POST/PATCH).
+ * - String "HH:MM": siempre minutos (panel debe usar esto para madrugada, ej. "00:15").
+ * - Número > 23: minutos desde medianoche (n8n / disponibilidad).
+ * - Número 0–23: legacy hora en punto (8 → 08:00).
+ */
 function horarioBodyToMinutos(raw) {
+  if (typeof raw === 'string') return hhmmToMin(raw);
   if (typeof raw === 'number') return raw <= 23 ? raw * 60 : raw;
-  return hhmmToMin(raw);
+  return null;
 }
 
 /** Mesas libres: mismo criterio que GET /disponibilidad/mesas-libres. */
