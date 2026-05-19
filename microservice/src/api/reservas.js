@@ -190,6 +190,18 @@ function horarioBodyToMinutos(raw) {
   return null;
 }
 
+/** Valor para fn_modificar_reserva (horario): HH:MM; fn_parse trata "15" como hora 15:00. */
+function horarioValorParaFnModificar(valor) {
+  if (typeof valor === 'string' && /^\d{1,2}:\d{2}$/.test(String(valor).trim())) {
+    return String(valor).trim();
+  }
+  const min = horarioBodyToMinutos(valor);
+  if (min == null || !Number.isFinite(min)) return null;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
 /** Mesas libres: mismo criterio que GET /disponibilidad/mesas-libres. */
 async function fetchMesasLibresInternal(pool, restauranteId, diaIso, horarioMin, excludeReservaId) {
   const { rows } = await pool.query(
@@ -663,14 +675,11 @@ export async function registerReservasRoutes(fastify, ctx) {
     for (const [campo, valor] of Object.entries(updates)) {
       let valorTxt = String(valor);
       if (campo === 'horario') {
-        if (typeof valor === 'number') {
-          valorTxt = valor <= 23 ? String(valor * 60) : String(valor);
-        } else {
-          const parts = String(valor).split(':');
-          const h = parseInt(parts[0], 10);
-          const mi = parseInt(parts[1], 10);
-          valorTxt = String(h * 60 + mi);
+        const hhmm = horarioValorParaFnModificar(valor);
+        if (!hhmm) {
+          return reply.code(400).send({ error: 'bad_request', message: 'horario invalido' });
         }
+        valorTxt = hhmm;
       }
       const { rows } = await ctx.pgPool.query(
         `SELECT id, restaurante_id, nombre, telefono, dia, horario_hora,
